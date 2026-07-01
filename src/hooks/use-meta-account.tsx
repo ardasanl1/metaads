@@ -10,11 +10,11 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
-import type { AdAccount, Business, MetaConnectionStatus, MetaConnectionSummary } from "@/types/meta";
+import type { AdAccount, MetaConnectionStatus, MetaConnectionSummary } from "@/types/meta";
 import {
   activateConnection,
-  fetchAdAccounts,
-  fetchBusinesses,
+  addLinkedAdAccount,
+  fetchLinkedAdAccounts,
   fetchMetaStatus,
   selectAdAccount,
 } from "@/services/meta/client";
@@ -22,17 +22,15 @@ import { LOCAL_STORAGE_KEYS } from "@/utils/meta-constants";
 import {
   adAccountIdsMatch,
   findAdAccountById,
-  normalizeAdAccountId,
+  linkedAccountsToAdAccounts,
 } from "@/utils/ad-account";
 
 type MetaAccountContextValue = {
   status: MetaConnectionStatus | null;
   connections: MetaConnectionSummary[];
   activeConnectionId: string | null;
+  activeConnection: MetaConnectionSummary | null;
   selectFirm: (connectionId: string) => Promise<void>;
-  businesses: Business[];
-  selectedBusinessId: string | null;
-  setSelectedBusinessId: (businessId: string) => void;
   adAccounts: AdAccount[];
   selectedAdAccountId: string | null;
   selectedAdAccountName: string | null;
@@ -61,8 +59,6 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<MetaConnectionStatus | null>(null);
   const [connections, setConnections] = useState<MetaConnectionSummary[]>([]);
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(null);
-  const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [selectedBusinessId, setSelectedBusinessIdState] = useState<string | null>(null);
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
   const [selectedAdAccountId, setSelectedAdAccountId] = useState<string | null>(null);
   const [selectedAdAccountName, setSelectedAdAccountName] = useState<string | null>(null);
@@ -70,29 +66,48 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
+  const applyAdAccountSelection = useCallback(
+    (connectionId: string, accountId: string | null, accountName: string | null) => {
+      setSelectedAdAccountId(accountId);
+      setSelectedAdAccountName(accountName);
+      if (accountId) {
+        writeStorage(`${LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID}:${connectionId}`, accountId);
+      }
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              selectedAdAccountId: accountId,
+              selectedAdAccountName: accountName,
+            }
+          : current,
+      );
+      setConnections((current) =>
+        current.map((item) =>
+          item.id === connectionId
+            ? {
+                ...item,
+                selectedAdAccountId: accountId ?? "",
+                selectedAdAccountName: accountName ?? "",
+              }
+            : item,
+        ),
+      );
+    },
+    [],
+  );
+
   const loadFirmData = useCallback(
     async (
       connectionId: string,
       preferredAccountId?: string | null,
-      preferredBusinessId?: string | null,
+      linkedFromStatus?: MetaConnectionSummary["linkedAdAccounts"],
     ) => {
-      const nextBusinesses = await fetchBusinesses(connectionId);
-      setBusinesses(nextBusinesses);
+      const accounts =
+        linkedFromStatus && linkedFromStatus.length > 0
+          ? linkedAccountsToAdAccounts(linkedFromStatus, connectionId)
+          : await fetchLinkedAdAccounts(connectionId);
 
-      const storedBusinessId = readStorage(LOCAL_STORAGE_KEYS.SELECTED_BUSINESS_ID);
-      const businessId =
-        preferredBusinessId && nextBusinesses.some((business) => business.id === preferredBusinessId)
-          ? preferredBusinessId
-          : storedBusinessId && nextBusinesses.some((business) => business.id === storedBusinessId)
-            ? storedBusinessId
-            : nextBusinesses[0]?.id ?? null;
-
-      setSelectedBusinessIdState(businessId);
-      if (businessId) {
-        writeStorage(LOCAL_STORAGE_KEYS.SELECTED_BUSINESS_ID, businessId);
-      }
-
-      const accounts = await fetchAdAccounts(connectionId, businessId);
       setAdAccounts(accounts);
 
       const storedAccountId = readStorage(
@@ -102,23 +117,20 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
 
       const storedMatch = storedAccountId ? findAdAccountById(accounts, storedAccountId) : undefined;
       const serverMatch = serverAccountId ? findAdAccountById(accounts, serverAccountId) : undefined;
-      const candidate = storedMatch ?? serverMatch ?? accounts[0] ?? null;
+      const candidate = serverMatch ?? storedMatch ?? accounts[0] ?? null;
 
       if (!candidate) {
-        setSelectedAdAccountId(null);
-        setSelectedAdAccountName(null);
+        applyAdAccountSelection(connectionId, null, null);
         return;
       }
 
-      setSelectedAdAccountId(candidate.id);
-      setSelectedAdAccountName(candidate.name);
-      writeStorage(`${LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID}:${connectionId}`, candidate.id);
+      applyAdAccountSelection(connectionId, candidate.id, candidate.name);
 
       if (!serverAccountId || !adAccountIdsMatch(candidate.id, serverAccountId)) {
-        await selectAdAccount(candidate.id, candidate.name, connectionId);
+        await selectAdAccount(candidate.id, connectionId);
       }
     },
-    [],
+    [applyAdAccountSelection],
   );
 
   const initialize = useCallback(async () => {
@@ -132,11 +144,8 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
 
       if (!nextStatus.connected || !nextStatus.activeConnectionId) {
         setActiveConnectionId(null);
-        setBusinesses([]);
         setAdAccounts([]);
-        setSelectedBusinessIdState(null);
-        setSelectedAdAccountId(null);
-        setSelectedAdAccountName(null);
+        applyAdAccountSelection("", null, null);
         return;
       }
 
@@ -144,10 +153,12 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
       setActiveConnectionId(connectionId);
       writeStorage(LOCAL_STORAGE_KEYS.ACTIVE_CONNECTION_ID, connectionId);
 
+      const activeConnection = nextStatus.connections.find((item) => item.id === connectionId);
+
       await loadFirmData(
         connectionId,
         nextStatus.selectedAdAccountId,
-        readStorage(LOCAL_STORAGE_KEYS.SELECTED_BUSINESS_ID),
+        activeConnection?.linkedAdAccounts,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Hesap bilgileri yüklenemedi";
@@ -156,7 +167,7 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [loadFirmData]);
+  }, [applyAdAccountSelection, loadFirmData]);
 
   useEffect(() => {
     void initialize();
@@ -178,6 +189,8 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
               item.id === connectionId ? activated.selectedAdAccountId : item.selectedAdAccountId,
             selectedAdAccountName:
               item.id === connectionId ? activated.selectedAdAccountName : item.selectedAdAccountName,
+            linkedAdAccounts:
+              item.id === connectionId ? activated.linkedAdAccounts : item.linkedAdAccounts,
           })),
         );
         setStatus((current) =>
@@ -192,7 +205,11 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
               }
             : current,
         );
-        await loadFirmData(connectionId, activated.selectedAdAccountId);
+        await loadFirmData(
+          connectionId,
+          activated.selectedAdAccountId,
+          activated.linkedAdAccounts,
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : "Firma seçilemedi";
         setError(message);
@@ -204,32 +221,6 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
     [loadFirmData],
   );
 
-  const setSelectedBusinessId = useCallback(
-    async (businessId: string) => {
-      if (!activeConnectionId) return;
-      setSelectedBusinessIdState(businessId);
-      writeStorage(LOCAL_STORAGE_KEYS.SELECTED_BUSINESS_ID, businessId);
-      setLoading(true);
-      try {
-        const accounts = await fetchAdAccounts(activeConnectionId, businessId);
-        setAdAccounts(accounts);
-        const current = findAdAccountById(accounts, selectedAdAccountId ?? "");
-        if (!current && accounts[0]) {
-          await selectAdAccount(accounts[0].id, accounts[0].name, activeConnectionId);
-          setSelectedAdAccountId(accounts[0].id);
-          setSelectedAdAccountName(accounts[0].name);
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Reklam hesapları yüklenemedi";
-        setError(message);
-        toast.error(message);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [activeConnectionId, selectedAdAccountId],
-  );
-
   const selectAdAccountById = useCallback(
     async (adAccountId: string) => {
       if (!activeConnectionId) return;
@@ -239,30 +230,8 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       setError(null);
       try {
-        await selectAdAccount(account.id, account.name, activeConnectionId);
-        setSelectedAdAccountId(account.id);
-        setSelectedAdAccountName(account.name);
-        writeStorage(`${LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID}:${activeConnectionId}`, account.id);
-        setStatus((current) =>
-          current
-            ? {
-                ...current,
-                selectedAdAccountId: account.id,
-                selectedAdAccountName: account.name,
-              }
-            : current,
-        );
-        setConnections((current) =>
-          current.map((item) =>
-            item.id === activeConnectionId
-              ? {
-                  ...item,
-                  selectedAdAccountId: account.id,
-                  selectedAdAccountName: account.name,
-                }
-              : item,
-          ),
-        );
+        await selectAdAccount(account.id, activeConnectionId);
+        applyAdAccountSelection(activeConnectionId, account.id, account.name);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Reklam hesabı seçilemedi";
         setError(message);
@@ -272,7 +241,7 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     },
-    [activeConnectionId, adAccounts],
+    [activeConnectionId, adAccounts, applyAdAccountSelection],
   );
 
   const addAdAccountManually = useCallback(
@@ -281,28 +250,31 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       setError(null);
       try {
-        const result = await selectAdAccount(rawAdAccountId, "", activeConnectionId);
-        const normalizedId = normalizeAdAccountId(result.selectedAdAccountId);
-        setSelectedAdAccountId(normalizedId);
-        setSelectedAdAccountName(result.selectedAdAccountName);
-        writeStorage(
-          `${LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID}:${activeConnectionId}`,
-          normalizedId,
+        const result = await addLinkedAdAccount(rawAdAccountId, activeConnectionId);
+        setAdAccounts(result.adAccounts);
+        applyAdAccountSelection(
+          activeConnectionId,
+          result.selectedAdAccountId,
+          result.selectedAdAccountName,
         );
-        setAdAccounts((current) => {
-          if (current.some((account) => adAccountIdsMatch(account.id, normalizedId))) {
-            return current;
-          }
-          return [
-            ...current,
-            {
-              id: normalizedId,
-              accountId: normalizedId.replace(/^act_/, ""),
-              name: result.selectedAdAccountName,
-              connectionId: activeConnectionId,
-            },
-          ];
-        });
+        setConnections((current) =>
+          current.map((item) =>
+            item.id === activeConnectionId
+              ? {
+                  ...item,
+                  linkedAdAccounts: result.adAccounts.map((account) => ({
+                    id: account.id,
+                    accountId: account.accountId,
+                    name: account.name,
+                    addedAt: item.linkedAdAccounts.find((linked) => linked.id === account.id)
+                      ?.addedAt ?? new Date().toISOString(),
+                  })),
+                  selectedAdAccountId: result.selectedAdAccountId,
+                  selectedAdAccountName: result.selectedAdAccountName,
+                }
+              : item,
+          ),
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : "Reklam hesabı eklenemedi";
         setError(message);
@@ -311,12 +283,17 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     },
-    [activeConnectionId],
+    [activeConnectionId, applyAdAccountSelection],
   );
 
   const retry = useCallback(() => {
     setReloadToken((value) => value + 1);
   }, []);
+
+  const activeConnection = useMemo(
+    () => connections.find((item) => item.id === activeConnectionId) ?? null,
+    [connections, activeConnectionId],
+  );
 
   const accountKey =
     activeConnectionId && selectedAdAccountId
@@ -330,10 +307,8 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
       status,
       connections,
       activeConnectionId,
+      activeConnection,
       selectFirm,
-      businesses,
-      selectedBusinessId,
-      setSelectedBusinessId,
       adAccounts,
       selectedAdAccountId,
       selectedAdAccountName,
@@ -349,10 +324,8 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
       status,
       connections,
       activeConnectionId,
+      activeConnection,
       selectFirm,
-      businesses,
-      selectedBusinessId,
-      setSelectedBusinessId,
       adAccounts,
       selectedAdAccountId,
       selectedAdAccountName,

@@ -8,12 +8,20 @@ export type MetaConnectionStatus = {
   selectedAdAccountName: string | null;
 };
 
+export type LinkedAdAccount = {
+  id: string;
+  accountId: string;
+  name: string;
+  addedAt: string;
+};
+
 export type MetaConnectionSummary = {
   id: string;
   metaUserId: string | null;
   metaUserName: string | null;
   selectedAdAccountId: string;
   selectedAdAccountName: string;
+  linkedAdAccounts: LinkedAdAccount[];
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

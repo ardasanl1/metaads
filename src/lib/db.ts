@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { join } from "path";
 import { decryptToken, encryptToken } from "./token-crypto";
 import { normalizeAdAccountId } from "@/utils/ad-account";
+import type { LinkedAdAccount } from "@/types/meta";
 
 const LEGACY_CONNECTION_ID = "default";
 
@@ -13,6 +14,7 @@ type StoredConnection = {
   metaUserName: string | null;
   selectedAdAccountId: string;
   selectedAdAccountName: string;
+  linkedAdAccountsJson: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -25,6 +27,7 @@ export type MetaConnection = {
   metaUserName: string | null;
   selectedAdAccountId: string;
   selectedAdAccountName: string;
+  linkedAdAccounts: LinkedAdAccount[];
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -39,10 +42,49 @@ type MetaConnectionRow = {
   meta_user_name: string | null;
   selected_ad_account_id: string;
   selected_ad_account_name: string;
+  linked_ad_accounts: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
 };
+
+function parseLinkedAdAccountsJson(raw: string | null | undefined): LinkedAdAccount[] {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw) as LinkedAdAccount[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => item?.id)
+      .map((item) => ({
+        id: normalizeAdAccountId(item.id),
+        accountId: item.accountId || normalizeAdAccountId(item.id).replace(/^act_/, ""),
+        name: item.name || "",
+        addedAt: item.addedAt || new Date().toISOString(),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function serializeLinkedAdAccounts(accounts: LinkedAdAccount[]): string {
+  return JSON.stringify(accounts);
+}
+
+function ensureLinkedAdAccounts(stored: StoredConnection): LinkedAdAccount[] {
+  let linked = parseLinkedAdAccountsJson(stored.linkedAdAccountsJson);
+  if (linked.length === 0 && stored.selectedAdAccountId) {
+    const id = normalizeAdAccountId(stored.selectedAdAccountId);
+    linked = [
+      {
+        id,
+        accountId: id.replace(/^act_/, ""),
+        name: stored.selectedAdAccountName,
+        addedAt: stored.createdAt,
+      },
+    ];
+  }
+  return linked;
+}
 
 type LocalStore = {
   connections: StoredConnection[];
@@ -97,6 +139,10 @@ async function ensureTable(): Promise<void> {
     ALTER TABLE meta_connections
     ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT false
   `;
+  await sql`
+    ALTER TABLE meta_connections
+    ADD COLUMN IF NOT EXISTS linked_ad_accounts TEXT NOT NULL DEFAULT '[]'
+  `;
 
   tableReady = true;
 }
@@ -121,6 +167,7 @@ function rowToStored(row: MetaConnectionRow): StoredConnection {
     metaUserName: row.meta_user_name,
     selectedAdAccountId: row.selected_ad_account_id,
     selectedAdAccountName: row.selected_ad_account_name,
+    linkedAdAccountsJson: row.linked_ad_accounts ?? "[]",
     isActive: row.is_active,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -128,6 +175,7 @@ function rowToStored(row: MetaConnectionRow): StoredConnection {
 }
 
 function toMetaConnection(stored: StoredConnection): MetaConnection {
+  const linkedAdAccounts = ensureLinkedAdAccounts(stored);
   return {
     id: stored.id,
     accessToken: decryptToken(stored.accessTokenEncrypted),
@@ -137,6 +185,7 @@ function toMetaConnection(stored: StoredConnection): MetaConnection {
       ? normalizeAdAccountId(stored.selectedAdAccountId)
       : "",
     selectedAdAccountName: stored.selectedAdAccountName,
+    linkedAdAccounts,
     isActive: stored.isActive,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
@@ -165,6 +214,16 @@ function migrateLegacyStored(legacy: {
     metaUserName: null,
     selectedAdAccountId: legacy.selectedAdAccountId,
     selectedAdAccountName: legacy.selectedAdAccountName,
+    linkedAdAccountsJson: legacy.selectedAdAccountId
+      ? serializeLinkedAdAccounts([
+          {
+            id: normalizeAdAccountId(legacy.selectedAdAccountId),
+            accountId: normalizeAdAccountId(legacy.selectedAdAccountId).replace(/^act_/, ""),
+            name: legacy.selectedAdAccountName,
+            addedAt: legacy.createdAt,
+          },
+        ])
+      : "[]",
     isActive: true,
     createdAt: legacy.createdAt,
     updatedAt: legacy.updatedAt,
@@ -176,7 +235,7 @@ async function readAllFromPostgres(): Promise<StoredConnection[]> {
   const sql = getSql();
   const rows = await sql`
     SELECT id, access_token_encrypted, meta_user_id, meta_user_name,
-           selected_ad_account_id, selected_ad_account_name,
+           selected_ad_account_id, selected_ad_account_name, linked_ad_accounts,
            is_active, created_at, updated_at
     FROM meta_connections
     ORDER BY created_at ASC
@@ -208,7 +267,7 @@ async function writeAllToPostgres(connections: StoredConnection[]): Promise<void
     await sql`
       INSERT INTO meta_connections (
         id, access_token_encrypted, meta_user_id, meta_user_name,
-        selected_ad_account_id, selected_ad_account_name,
+        selected_ad_account_id, selected_ad_account_name, linked_ad_accounts,
         is_active, created_at, updated_at
       ) VALUES (
         ${connection.id},
@@ -217,6 +276,7 @@ async function writeAllToPostgres(connections: StoredConnection[]): Promise<void
         ${connection.metaUserName},
         ${connection.selectedAdAccountId},
         ${connection.selectedAdAccountName},
+        ${connection.linkedAdAccountsJson},
         ${connection.isActive},
         ${connection.createdAt},
         ${connection.updatedAt}
@@ -230,7 +290,10 @@ function readAllFromFile(): StoredConnection[] {
   if (existsSync(filePath)) {
     try {
       const parsed = JSON.parse(readFileSync(filePath, "utf8")) as LocalStore;
-      return parsed.connections ?? [];
+      return (parsed.connections ?? []).map((item) => ({
+        ...item,
+        linkedAdAccountsJson: item.linkedAdAccountsJson ?? "[]",
+      }));
     } catch {
       return [];
     }
@@ -343,10 +406,25 @@ export async function saveMetaConnection(input: {
       ? normalizeAdAccountId(input.adAccountId)
       : existing?.selectedAdAccountId ?? "",
     selectedAdAccountName: input.adAccountName ?? existing?.selectedAdAccountName ?? "",
+    linkedAdAccountsJson: existing?.linkedAdAccountsJson ?? "[]",
     isActive: existing?.isActive ?? connections.length === 0,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
+
+  if (input.adAccountId) {
+    const id = normalizeAdAccountId(input.adAccountId);
+    const linked = parseLinkedAdAccountsJson(nextConnection.linkedAdAccountsJson);
+    if (!linked.some((item) => item.id === id)) {
+      linked.push({
+        id,
+        accountId: id.replace(/^act_/, ""),
+        name: input.adAccountName ?? "",
+        addedAt: now,
+      });
+      nextConnection.linkedAdAccountsJson = serializeLinkedAdAccounts(linked);
+    }
+  }
 
   const withoutCurrent = connections.filter((item) => item.id !== connectionId);
   const next = ensureSingleActive([...withoutCurrent, nextConnection]);
@@ -418,4 +496,66 @@ export async function updateSelectedAdAccount(input: {
   );
 
   await writeAllStored(next);
+}
+
+export async function addLinkedAdAccount(input: {
+  connectionId: string;
+  adAccountId: string;
+  adAccountName: string;
+  select?: boolean;
+}): Promise<{ linkedAdAccounts: LinkedAdAccount[]; selectedAdAccountId: string; selectedAdAccountName: string }> {
+  const connections = await readAllStored();
+  const target = connections.find((item) => item.id === input.connectionId);
+  if (!target) {
+    throw new Error("Meta baglantisi bulunamadi");
+  }
+
+  const now = new Date().toISOString();
+  const id = normalizeAdAccountId(input.adAccountId);
+  let linked = ensureLinkedAdAccounts(target);
+  const existing = linked.find((item) => item.id === id);
+
+  if (existing) {
+    existing.name = input.adAccountName || existing.name;
+  } else {
+    linked = [
+      ...linked,
+      {
+        id,
+        accountId: id.replace(/^act_/, ""),
+        name: input.adAccountName,
+        addedAt: now,
+      },
+    ];
+  }
+
+  const shouldSelect = input.select ?? true;
+  const next = connections.map((item) =>
+    item.id === input.connectionId
+      ? {
+          ...item,
+          linkedAdAccountsJson: serializeLinkedAdAccounts(linked),
+          selectedAdAccountId: shouldSelect ? id : item.selectedAdAccountId,
+          selectedAdAccountName: shouldSelect
+            ? input.adAccountName || existing?.name || item.selectedAdAccountName
+            : item.selectedAdAccountName,
+          updatedAt: now,
+        }
+      : item,
+  );
+
+  await writeAllStored(next);
+
+  const updated = next.find((item) => item.id === input.connectionId);
+  const connection = toMetaConnection(updated!);
+  return {
+    linkedAdAccounts: connection.linkedAdAccounts,
+    selectedAdAccountId: connection.selectedAdAccountId,
+    selectedAdAccountName: connection.selectedAdAccountName,
+  };
+}
+
+export async function listLinkedAdAccounts(connectionId: string): Promise<LinkedAdAccount[]> {
+  const connection = await getMetaConnectionById(connectionId);
+  return connection?.linkedAdAccounts ?? [];
 }

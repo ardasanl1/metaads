@@ -4,11 +4,10 @@ import { FormEvent, useState } from "react";
 import PanelLayout from "@/components/PanelLayout";
 import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
 import { AdAccountSelector } from "@/components/selectors/AdAccountSelector";
-import { BusinessSelector } from "@/components/selectors/BusinessSelector";
 import { FirmSelector } from "@/components/selectors/FirmSelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { disconnectConnection } from "@/services/meta/client";
@@ -19,10 +18,8 @@ function IntegrationsBody() {
     status,
     connections,
     activeConnectionId,
+    activeConnection,
     selectFirm,
-    businesses,
-    selectedBusinessId,
-    setSelectedBusinessId,
     adAccounts,
     selectedAdAccountId,
     selectAdAccountById,
@@ -57,7 +54,9 @@ function IntegrationsBody() {
       }
 
       setAccessToken("");
-      setMessage("Firma bağlantısı kaydedildi. Üst menüden firma ve reklam hesabını seçebilirsiniz.");
+      setMessage(
+        "İşletme tokenı kaydedildi. Seçili firmaya Meta reklam hesabı ID ekleyerek devam edin.",
+      );
       retry();
     } catch {
       setError("Bağlantı kurulurken bir hata oluştu");
@@ -89,13 +88,14 @@ function IntegrationsBody() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
           <div>
-            <CardTitle>Meta Ads</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Her firma için ayrı Access Token ekleyin. Firmalar Meta kullanıcı ID ile ayrılır.
-            </p>
+            <CardTitle>Meta İşletme Bağlantısı</CardTitle>
+            <CardDescription className="mt-1">
+              Her işletme için ayrı access token ekleyin. Token işletme hesabına aittir; reklam
+              hesaplarını sonradan Meta ID ile manuel eklersiniz.
+            </CardDescription>
           </div>
           <Badge variant={status?.connected ? "success" : "muted"}>
-            {connections.length > 0 ? `${connections.length} firma` : "Bağlı Değil"}
+            {connections.length > 0 ? `${connections.length} işletme` : "Bağlı Değil"}
           </Badge>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -112,7 +112,7 @@ function IntegrationsBody() {
 
           {connections.length > 0 && (
             <div className="space-y-2">
-              <p className="text-sm font-medium">Bağlı firmalar</p>
+              <p className="text-sm font-medium">Bağlı işletmeler</p>
               {connections.map((connection) => (
                 <div
                   key={connection.id}
@@ -121,6 +121,9 @@ function IntegrationsBody() {
                   <div className="text-sm">
                     <p className="font-medium">{getFirmDisplayName(connection)}</p>
                     <p className="text-xs text-muted-foreground">Meta ID: {connection.metaUserId}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {connection.linkedAdAccounts.length} kayıtlı reklam hesabı
+                    </p>
                   </div>
                   <Button
                     type="button"
@@ -141,7 +144,7 @@ function IntegrationsBody() {
           <form onSubmit={handleConnect} className="space-y-3">
             <div className="space-y-1.5">
               <label htmlFor="accessToken" className="text-sm font-medium text-foreground">
-                Meta Access Token
+                İşletme Access Token
               </label>
               <Input
                 id="accessToken"
@@ -154,12 +157,13 @@ function IntegrationsBody() {
                 className="bg-background text-foreground"
               />
               <p className="text-xs text-muted-foreground">
-                Her firmanın kendi tokenını girin. Aynı Meta kullanıcısı için token güncellenir.
+                Token işletme (Business) hesabına ait olmalıdır. Aynı Meta kullanıcısı için token
+                güncellenir.
               </p>
             </div>
 
             <Button type="submit" disabled={connecting}>
-              {connecting ? "Bağlanıyor..." : "Firma Bağla"}
+              {connecting ? "Bağlanıyor..." : "İşletme Bağla"}
             </Button>
           </form>
         </CardContent>
@@ -168,10 +172,11 @@ function IntegrationsBody() {
       {status?.connected && activeConnectionId && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Hesap Seçimi</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Firma ve reklam hesabını isimle seçin. Veriler seçilen hesaba göre çekilir.
-            </p>
+            <CardTitle className="text-base">Reklam Hesapları</CardTitle>
+            <CardDescription>
+              Önce işletmeyi seçin, ardından bu işletmeye ait reklam hesaplarını Meta ID ile ekleyin.
+              Tüm hesaplar otomatik çekilmez.
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
             <FirmSelector
@@ -179,12 +184,7 @@ function IntegrationsBody() {
               value={activeConnectionId}
               onChange={(connectionId) => void selectFirm(connectionId)}
               loading={accountLoading}
-            />
-            <BusinessSelector
-              businesses={businesses}
-              value={selectedBusinessId}
-              onChange={(businessId) => void setSelectedBusinessId(businessId)}
-              loading={accountLoading}
+              metaUserId={activeConnection?.metaUserId}
             />
             <AdAccountSelector
               adAccounts={adAccounts}

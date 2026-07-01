@@ -3,7 +3,6 @@ import type {
   AdSetWithInsights,
   AdWithInsights,
   ApiErrorResponse,
-  Business,
   CampaignWithInsights,
   CreateCampaignPayload,
   MetaConnectionStatus,
@@ -40,24 +39,26 @@ export async function fetchMetaStatus(): Promise<MetaConnectionStatus> {
   return apiFetch<MetaConnectionStatus>("/api/meta/status");
 }
 
-export async function fetchBusinesses(connectionId: string): Promise<Business[]> {
-  const data = await apiFetch<{ businesses: Business[] }>(
-    `/api/meta/businesses${buildQuery({ connectionId })}`,
-  );
-  return data.businesses;
-}
-
-export async function fetchAdAccounts(
-  connectionId: string,
-  businessId?: string | null,
-): Promise<AdAccount[]> {
+export async function fetchLinkedAdAccounts(connectionId: string): Promise<AdAccount[]> {
   const data = await apiFetch<{ adAccounts: AdAccount[] }>(
-    `/api/meta/ad-accounts${buildQuery({
-      connectionId,
-      businessId: businessId ?? undefined,
-    })}`,
+    `/api/meta/ad-accounts${buildQuery({ connectionId })}`,
   );
   return data.adAccounts;
+}
+
+export async function addLinkedAdAccount(
+  adAccountId: string,
+  connectionId: string,
+): Promise<{
+  adAccounts: AdAccount[];
+  selectedAdAccountId: string;
+  selectedAdAccountName: string;
+}> {
+  return apiFetch("/api/meta/ad-accounts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ adAccountId, connectionId }),
+  });
 }
 
 export async function activateConnection(connectionId: string): Promise<MetaConnectionSummary> {
@@ -74,7 +75,6 @@ export async function activateConnection(connectionId: string): Promise<MetaConn
 
 export async function selectAdAccount(
   adAccountId: string,
-  adAccountName: string,
   connectionId: string,
 ): Promise<{
   connectionId: string;
@@ -84,7 +84,7 @@ export async function selectAdAccount(
   return apiFetch("/api/meta/ad-accounts/select", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ adAccountId, adAccountName, connectionId }),
+    body: JSON.stringify({ adAccountId, connectionId }),
   });
 }
 

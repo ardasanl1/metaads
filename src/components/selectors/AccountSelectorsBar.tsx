@@ -1,7 +1,6 @@
 "use client";
 
 import { FirmSelector } from "@/components/selectors/FirmSelector";
-import { BusinessSelector } from "@/components/selectors/BusinessSelector";
 import { AdAccountSelector } from "@/components/selectors/AdAccountSelector";
 import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
 import { useMetaAccount } from "@/hooks/use-meta-account";
@@ -11,10 +10,8 @@ export function AccountSelectorsBar() {
     status,
     connections,
     activeConnectionId,
+    activeConnection,
     selectFirm,
-    businesses,
-    selectedBusinessId,
-    setSelectedBusinessId,
     adAccounts,
     selectedAdAccountId,
     selectAdAccountById,
@@ -33,12 +30,7 @@ export function AccountSelectorsBar() {
         value={activeConnectionId}
         onChange={(connectionId) => void selectFirm(connectionId)}
         loading={loading}
-      />
-      <BusinessSelector
-        businesses={businesses}
-        value={selectedBusinessId}
-        onChange={(businessId) => void setSelectedBusinessId(businessId)}
-        loading={loading}
+        metaUserId={activeConnection?.metaUserId}
       />
       <AdAccountSelector
         adAccounts={adAccounts}
@@ -46,7 +38,7 @@ export function AccountSelectorsBar() {
         onChange={(adAccountId) => void selectAdAccountById(adAccountId)}
         loading={loading}
       />
-      <AddAdAccountForm onAdd={addAdAccountManually} disabled={loading} />
+      <AddAdAccountForm onAdd={addAdAccountManually} disabled={loading || !activeConnectionId} />
     </div>
   );
 }

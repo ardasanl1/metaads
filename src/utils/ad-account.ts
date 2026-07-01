@@ -1,3 +1,5 @@
+import type { AdAccount } from "@/types/meta";
+
 export type AdAccountRaw = {
   id: string;
   account_id?: string;
@@ -64,18 +66,30 @@ export function formatAdAccountLabel(account: Pick<NormalizedAdAccount, "name">)
 }
 
 export function getFirmDisplayName(connection: {
-  selectedAdAccountName?: string | null;
   metaUserName?: string | null;
   metaUserId?: string | null;
+  displayName?: string;
 }): string {
-  if (connection.selectedAdAccountName?.trim()) {
-    return connection.selectedAdAccountName.trim();
+  if (connection.displayName?.trim()) {
+    return connection.displayName.trim();
   }
   if (connection.metaUserName?.trim()) {
     return connection.metaUserName.trim();
   }
   if (connection.metaUserId) {
-    return `Meta ${connection.metaUserId}`;
+    return `İşletme ${connection.metaUserId}`;
   }
   return "Firma";
+}
+
+export function linkedAccountsToAdAccounts(
+  linked: Array<{ id: string; accountId: string; name: string }>,
+  connectionId: string,
+): AdAccount[] {
+  return linked.map((account) => ({
+    id: normalizeAdAccountId(account.id),
+    accountId: account.accountId || getNumericAdAccountId(account.id),
+    name: account.name,
+    connectionId,
+  }));
 }

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
-import { getActiveMetaConnection, getMetaConnectionById, updateSelectedAdAccount } from "@/lib/db";
-import { MetaApiError, verifyMetaConnection } from "@/lib/meta";
+import {
+  getActiveMetaConnection,
+  getMetaConnectionById,
+  listLinkedAdAccounts,
+  updateSelectedAdAccount,
+} from "@/lib/db";
 import { handleApiError, jsonError } from "@/lib/api-utils";
-import { normalizeAdAccountId } from "@/utils/ad-account";
+import { adAccountIdsMatch, normalizeAdAccountId } from "@/utils/ad-account";
 
 export async function POST(request: NextRequest) {
   if (!isAuthenticatedRequest(request)) {
@@ -13,13 +17,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as {
       adAccountId?: string;
-      adAccountName?: string;
       connectionId?: string;
     };
 
     const adAccountId =
-      typeof body.adAccountId === "string" ? normalizeAdAccountId(body.adAccountId) : "";
-    const adAccountName = typeof body.adAccountName === "string" ? body.adAccountName.trim() : "";
+      typeof body.adAccountId === "string" ? normalizeAdAccountId(body.adAccountId.trim()) : "";
     const connectionId =
       typeof body.connectionId === "string" && body.connectionId.trim()
         ? body.connectionId.trim()
@@ -37,24 +39,29 @@ export async function POST(request: NextRequest) {
       return jsonError("Meta hesabı bağlı değil", 400);
     }
 
-    const verified = await verifyMetaConnection(connection.accessToken, adAccountId);
+    const linked = await listLinkedAdAccounts(connection.id);
+    const account = linked.find((item) => adAccountIdsMatch(item.id, adAccountId));
+
+    if (!account) {
+      return jsonError(
+        "Bu reklam hesabı firmaya ekli değil. Önce Meta ID ile hesabı ekleyin.",
+        400,
+      );
+    }
 
     await updateSelectedAdAccount({
       connectionId: connection.id,
-      adAccountId: verified.adAccountId,
-      adAccountName: adAccountName || verified.accountName,
+      adAccountId: account.id,
+      adAccountName: account.name,
     });
 
     return NextResponse.json({
       ok: true,
       connectionId: connection.id,
-      selectedAdAccountId: verified.adAccountId,
-      selectedAdAccountName: adAccountName || verified.accountName,
+      selectedAdAccountId: account.id,
+      selectedAdAccountName: account.name,
     });
   } catch (error) {
-    if (error instanceof MetaApiError) {
-      return jsonError(error.message, error.status);
-    }
     return handleApiError(error);
   }
 }

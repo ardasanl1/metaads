@@ -32,10 +32,10 @@ export function AdAccountSelector({
 
   return (
     <div className="flex min-w-0 flex-col gap-1.5 sm:w-72">
-      <label className="text-xs font-medium text-muted-foreground">Ad Account</label>
+      <label className="text-xs font-medium text-muted-foreground">Reklam Hesabı</label>
       <Select value={value ?? undefined} onValueChange={onChange} disabled={adAccounts.length === 0}>
         <SelectTrigger>
-          <SelectValue placeholder="Reklam hesabı seçin">
+          <SelectValue placeholder={adAccounts.length === 0 ? "Önce hesap ekleyin" : "Reklam hesabı seçin"}>
             {selectedAccount ? formatAdAccountLabel(selectedAccount) : undefined}
           </SelectValue>
         </SelectTrigger>

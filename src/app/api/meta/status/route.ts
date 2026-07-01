@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       connections: connections.map((connection) => ({
         ...connection,
         displayName: getFirmDisplayName(connection),
+        linkedAdAccounts: connection.linkedAdAccounts,
       })),
       metaUserId: active?.metaUserId ?? null,
       metaUserName: active?.metaUserName ?? null,

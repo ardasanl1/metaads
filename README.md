@@ -31,9 +31,11 @@ OAuth kullanılmaz. Her firma ayrı bir Meta access token ile bağlanır.
 
 Üst bardaki seçicilerden:
 
-- **Firma** — Bağlı firmalar arasından seçim (yalnızca ad gösterilir)
-- **Business** — Birden fazla business varsa seçim
-- **Reklam Hesabı** — Hesap adı ile seçim; gerekirse **Yeni Hesap Ekle** ile manuel `act_` ID
+- **İşletme / Firma** — Token ile bağlı işletme (Meta kullanıcı ID)
+- **Reklam Hesabı** — Firmaya manuel eklenen hesaplardan seçim
+- **Reklam Hesabı Ekle** — `act_123456789` formatında Meta ID girerek hesabı firmaya bağlama
+
+Tüm reklam hesapları otomatik çekilmez; yalnızca eklediğiniz ID'ler listelenir.
 
 ## Özellikler
 

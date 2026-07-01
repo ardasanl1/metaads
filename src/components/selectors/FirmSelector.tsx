@@ -16,6 +16,7 @@ type FirmSelectorProps = {
   value: string | null;
   onChange: (connectionId: string) => void;
   loading?: boolean;
+  metaUserId?: string | null;
 };
 
 export function FirmSelector({
@@ -23,6 +24,7 @@ export function FirmSelector({
   value,
   onChange,
   loading = false,
+  metaUserId,
 }: FirmSelectorProps) {
   if (loading) {
     return <Skeleton className="h-9 w-full sm:w-56" />;
@@ -36,7 +38,7 @@ export function FirmSelector({
 
   return (
     <div className="flex min-w-0 flex-col gap-1.5 sm:w-56">
-      <label className="text-xs font-medium text-muted-foreground">Firma</label>
+      <label className="text-xs font-medium text-muted-foreground">İşletme / Firma</label>
       <Select value={value ?? undefined} onValueChange={onChange}>
         <SelectTrigger>
           <SelectValue placeholder="Firma seçin">
@@ -51,6 +53,11 @@ export function FirmSelector({
           ))}
         </SelectContent>
       </Select>
+      {(metaUserId || selected?.metaUserId) && (
+        <p className="text-[11px] text-muted-foreground">
+          Meta ID: {metaUserId ?? selected?.metaUserId}
+        </p>
+      )}
     </div>
   );
 }
