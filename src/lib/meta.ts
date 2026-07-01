@@ -1,5 +1,5 @@
 import "server-only";
-import { getMetaConnection } from "./db";
+import { getMetaConnection, getMetaConnectionById } from "./db";
 import {
   normalizeAdAccountId,
   normalizeAdAccountList,
@@ -40,8 +40,10 @@ async function parseMetaResponse<T>(response: Response): Promise<T> {
   return data;
 }
 
-async function getStoredAccessToken(): Promise<string> {
-  const connection = await getMetaConnection();
+async function getStoredAccessToken(connectionId?: string): Promise<string> {
+  const connection = connectionId
+    ? await getMetaConnectionById(connectionId)
+    : await getMetaConnection();
   if (!connection) {
     throw new MetaApiError("Meta hesabi bagli degil", 400);
   }
@@ -54,9 +56,10 @@ export async function metaRequest<T = unknown>(
     method?: "GET" | "POST";
     body?: Record<string, unknown>;
     token?: string;
+    connectionId?: string;
   } = {},
 ): Promise<T> {
-  const token = options.token ?? (await getStoredAccessToken());
+  const token = options.token ?? (await getStoredAccessToken(options.connectionId));
   const url = path.startsWith("http") ? path : `${graphBaseUrl()}/${path.replace(/^\//, "")}`;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -107,12 +110,14 @@ export async function verifyMetaConnection(
 
 export async function verifyMetaToken(
   accessToken: string,
-): Promise<{ metaUserId: string | null }> {
+): Promise<{ metaUserId: string | null; metaUserName: string | null }> {
   try {
-    const me = await metaRequest<{ id: string }>("me?fields=id", { token: accessToken });
-    return { metaUserId: me.id };
+    const me = await metaRequest<{ id: string; name?: string }>("me?fields=id,name", {
+      token: accessToken,
+    });
+    return { metaUserId: me.id, metaUserName: me.name ?? null };
   } catch {
-    return { metaUserId: null };
+    return { metaUserId: null, metaUserName: null };
   }
 }
 
@@ -187,28 +192,37 @@ function buildInsightsParam(query?: InsightsQuery): string {
   return `insights.date_preset(last_7d){${INSIGHT_FIELDS}}`;
 }
 
-export async function getBusinesses(): Promise<Business[]> {
+export async function getBusinesses(options?: { token?: string }): Promise<Business[]> {
   try {
-    return await fetchPaged<Business>("me/businesses?fields=id,name&limit=100");
+    return await fetchPaged<Business>("me/businesses?fields=id,name&limit=100", 100, options?.token);
   } catch {
     return [];
   }
 }
 
-export async function getAdAccountsForBusiness(businessId: string): Promise<AdAccount[]> {
+export async function getAdAccountsForBusiness(
+  businessId: string,
+  options?: { token?: string },
+): Promise<AdAccount[]> {
   const owned = await fetchPaged<AdAccountRaw>(
     `${businessId}/owned_ad_accounts?fields=id,account_id,name,account_status,currency&limit=100`,
+    100,
+    options?.token,
   );
   const client = await fetchPaged<AdAccountRaw>(
     `${businessId}/client_ad_accounts?fields=id,account_id,name,account_status,currency&limit=100`,
+    100,
+    options?.token,
   );
 
   return normalizeAdAccountList([...owned, ...client]);
 }
 
-export async function getUserAdAccounts(): Promise<AdAccount[]> {
+export async function getUserAdAccounts(options?: { token?: string }): Promise<AdAccount[]> {
   const accounts = await fetchPaged<AdAccountRaw>(
     "me/adaccounts?fields=id,account_id,name,account_status,currency&limit=100",
+    100,
+    options?.token,
   );
   return normalizeAdAccountList(accounts);
 }
@@ -294,13 +308,13 @@ type PagedResult<T> = {
   paging?: { next?: string };
 };
 
-async function fetchPaged<T>(initialPath: string, max = 100): Promise<T[]> {
+async function fetchPaged<T>(initialPath: string, max = 100, token?: string): Promise<T[]> {
   const baseUrl = graphBaseUrl();
   let nextPath: string | null = initialPath;
   const results: T[] = [];
 
   while (nextPath && results.length < max) {
-    const page: PagedResult<T> = await metaRequest(nextPath);
+    const page: PagedResult<T> = await metaRequest(nextPath, { token });
     if (page.data) {
       results.push(...page.data);
     }

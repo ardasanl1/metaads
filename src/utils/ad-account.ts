@@ -59,6 +59,23 @@ export function findAdAccountById(
   return accounts.find((account) => account.id === normalizedId);
 }
 
-export function formatAdAccountLabel(account: Pick<NormalizedAdAccount, "name" | "id">): string {
-  return `${account.name} (${account.id})`;
+export function formatAdAccountLabel(account: Pick<NormalizedAdAccount, "name">): string {
+  return account.name;
+}
+
+export function getFirmDisplayName(connection: {
+  selectedAdAccountName?: string | null;
+  metaUserName?: string | null;
+  metaUserId?: string | null;
+}): string {
+  if (connection.selectedAdAccountName?.trim()) {
+    return connection.selectedAdAccountName.trim();
+  }
+  if (connection.metaUserName?.trim()) {
+    return connection.metaUserName.trim();
+  }
+  if (connection.metaUserId) {
+    return `Meta ${connection.metaUserId}`;
+  }
+  return "Firma";
 }

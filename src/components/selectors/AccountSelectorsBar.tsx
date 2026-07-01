@@ -1,5 +1,6 @@
 "use client";
 
+import { FirmSelector } from "@/components/selectors/FirmSelector";
 import { BusinessSelector } from "@/components/selectors/BusinessSelector";
 import { AdAccountSelector } from "@/components/selectors/AdAccountSelector";
 import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
@@ -8,6 +9,9 @@ import { useMetaAccount } from "@/hooks/use-meta-account";
 export function AccountSelectorsBar() {
   const {
     status,
+    connections,
+    activeConnectionId,
+    selectFirm,
     businesses,
     selectedBusinessId,
     setSelectedBusinessId,
@@ -24,6 +28,12 @@ export function AccountSelectorsBar() {
 
   return (
     <div className="flex flex-col gap-3 border-b border-border bg-card px-4 py-3 sm:flex-row sm:flex-wrap sm:items-end sm:px-6">
+      <FirmSelector
+        connections={connections}
+        value={activeConnectionId}
+        onChange={(connectionId) => void selectFirm(connectionId)}
+        loading={loading}
+      />
       <BusinessSelector
         businesses={businesses}
         value={selectedBusinessId}
@@ -36,10 +46,7 @@ export function AccountSelectorsBar() {
         onChange={(adAccountId) => void selectAdAccountById(adAccountId)}
         loading={loading}
       />
-      <AddAdAccountForm
-        onAdd={addAdAccountManually}
-        disabled={loading}
-      />
+      <AddAdAccountForm onAdd={addAdAccountManually} disabled={loading} />
     </div>
   );
 }

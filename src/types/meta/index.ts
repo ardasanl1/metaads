@@ -1,8 +1,23 @@
 export type MetaConnectionStatus = {
   connected: boolean;
+  activeConnectionId: string | null;
+  connections: MetaConnectionSummary[];
   metaUserId: string | null;
+  metaUserName: string | null;
   selectedAdAccountId: string | null;
   selectedAdAccountName: string | null;
+};
+
+export type MetaConnectionSummary = {
+  id: string;
+  metaUserId: string | null;
+  metaUserName: string | null;
+  selectedAdAccountId: string;
+  selectedAdAccountName: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  displayName?: string;
 };
 
 export type Business = {
@@ -14,6 +29,7 @@ export type AdAccount = {
   id: string;
   accountId: string;
   name: string;
+  connectionId: string;
   account_status?: number;
   currency?: string;
 };

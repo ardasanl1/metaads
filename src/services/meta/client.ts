@@ -4,6 +4,7 @@ import type {
   Business,
   CampaignWithInsights,
   MetaConnectionStatus,
+  MetaConnectionSummary,
   ParsedInsights,
   QuickDateFilter,
 } from "@/types/meta";
@@ -36,30 +37,60 @@ export async function fetchMetaStatus(): Promise<MetaConnectionStatus> {
   return apiFetch<MetaConnectionStatus>("/api/meta/status");
 }
 
-export async function fetchBusinesses(): Promise<Business[]> {
-  const data = await apiFetch<{ businesses: Business[] }>("/api/meta/businesses");
+export async function fetchBusinesses(connectionId: string): Promise<Business[]> {
+  const data = await apiFetch<{ businesses: Business[] }>(
+    `/api/meta/businesses${buildQuery({ connectionId })}`,
+  );
   return data.businesses;
 }
 
-export async function fetchAdAccounts(businessId?: string | null): Promise<AdAccount[]> {
+export async function fetchAdAccounts(
+  connectionId: string,
+  businessId?: string | null,
+): Promise<AdAccount[]> {
   const data = await apiFetch<{ adAccounts: AdAccount[] }>(
-    `/api/meta/ad-accounts${buildQuery({ businessId: businessId ?? undefined })}`,
+    `/api/meta/ad-accounts${buildQuery({
+      connectionId,
+      businessId: businessId ?? undefined,
+    })}`,
   );
   return data.adAccounts;
+}
+
+export async function activateConnection(connectionId: string): Promise<MetaConnectionSummary> {
+  const data = await apiFetch<{ connection: MetaConnectionSummary }>(
+    "/api/meta/connections/activate",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connectionId }),
+    },
+  );
+  return data.connection;
 }
 
 export async function selectAdAccount(
   adAccountId: string,
   adAccountName: string,
-): Promise<{ selectedAdAccountId: string; selectedAdAccountName: string }> {
-  return apiFetch<{ selectedAdAccountId: string; selectedAdAccountName: string }>(
-    "/api/meta/ad-accounts/select",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adAccountId, adAccountName }),
-    },
-  );
+  connectionId: string,
+): Promise<{
+  connectionId: string;
+  selectedAdAccountId: string;
+  selectedAdAccountName: string;
+}> {
+  return apiFetch("/api/meta/ad-accounts/select", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ adAccountId, adAccountName, connectionId }),
+  });
+}
+
+export async function disconnectConnection(connectionId: string): Promise<void> {
+  await apiFetch("/api/meta/disconnect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connectionId }),
+  });
 }
 
 export async function fetchCampaigns(params?: InsightsParams): Promise<CampaignWithInsights[]> {

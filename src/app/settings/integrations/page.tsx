@@ -5,15 +5,21 @@ import PanelLayout from "@/components/PanelLayout";
 import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
 import { AdAccountSelector } from "@/components/selectors/AdAccountSelector";
 import { BusinessSelector } from "@/components/selectors/BusinessSelector";
+import { FirmSelector } from "@/components/selectors/FirmSelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useMetaAccount } from "@/hooks/use-meta-account";
+import { disconnectConnection } from "@/services/meta/client";
+import { getFirmDisplayName } from "@/utils/ad-account";
 
 function IntegrationsBody() {
   const {
     status,
+    connections,
+    activeConnectionId,
+    selectFirm,
     businesses,
     selectedBusinessId,
     setSelectedBusinessId,
@@ -27,7 +33,7 @@ function IntegrationsBody() {
 
   const [accessToken, setAccessToken] = useState("");
   const [connecting, setConnecting] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -43,12 +49,7 @@ function IntegrationsBody() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accessToken }),
       });
-      const data = (await res.json()) as {
-        error?: string;
-        metaUserId?: string | null;
-        selectedAdAccountId?: string | null;
-        selectedAdAccountName?: string | null;
-      };
+      const data = (await res.json()) as { error?: string };
 
       if (!res.ok) {
         setError(data.error ?? "Bağlantı kurulamadı");
@@ -56,7 +57,7 @@ function IntegrationsBody() {
       }
 
       setAccessToken("");
-      setMessage("Meta Access Token kaydedildi. Reklam hesabı seçerek verileri görüntüleyebilirsiniz.");
+      setMessage("Firma bağlantısı kaydedildi. Üst menüden firma ve reklam hesabını seçebilirsiniz.");
       retry();
     } catch {
       setError("Bağlantı kurulurken bir hata oluştu");
@@ -65,27 +66,21 @@ function IntegrationsBody() {
     }
   }
 
-  async function handleDisconnect() {
-    if (!confirm("Meta bağlantısını kaldırmak istediğinize emin misiniz?")) return;
+  async function handleDisconnect(connectionId: string, firmName: string) {
+    if (!confirm(`${firmName} bağlantısını kaldırmak istediğinize emin misiniz?`)) return;
 
-    setDisconnecting(true);
+    setDisconnectingId(connectionId);
     setError("");
     setMessage("");
 
     try {
-      const res = await fetch("/api/meta/disconnect", { method: "POST" });
-      if (!res.ok) {
-        setError("Bağlantı kaldırılamadı");
-        return;
-      }
-
-      setAccessToken("");
-      setMessage("Meta bağlantısı kaldırıldı.");
+      await disconnectConnection(connectionId);
+      setMessage(`${firmName} bağlantısı kaldırıldı.`);
       retry();
     } catch {
       setError("Bağlantı kaldırılırken bir hata oluştu");
     } finally {
-      setDisconnecting(false);
+      setDisconnectingId(null);
     }
   }
 
@@ -96,18 +91,14 @@ function IntegrationsBody() {
           <div>
             <CardTitle>Meta Ads</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Sadece Access Token ile bağlanın; reklam hesabını üst menüden seçin.
+              Her firma için ayrı Access Token ekleyin. Firmalar Meta kullanıcı ID ile ayrılır.
             </p>
           </div>
           <Badge variant={status?.connected ? "success" : "muted"}>
-            {status?.connected ? "Bağlı" : "Bağlı Değil"}
+            {connections.length > 0 ? `${connections.length} firma` : "Bağlı Değil"}
           </Badge>
         </CardHeader>
         <CardContent className="space-y-4">
-          {accountLoading && !status && (
-            <p className="text-sm text-muted-foreground">Yükleniyor...</p>
-          )}
-
           {message && (
             <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-900/50 dark:bg-green-950/30 dark:text-green-200">
               {message}
@@ -119,23 +110,31 @@ function IntegrationsBody() {
             </p>
           )}
 
-          {status?.connected && (
-            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
-              {status.metaUserId && (
-                <p>
-                  <span className="font-medium">Meta kullanıcı ID:</span> {status.metaUserId}
-                </p>
-              )}
-              {status.selectedAdAccountId ? (
-                <p className={status.metaUserId ? "mt-1" : ""}>
-                  <span className="font-medium">Aktif reklam hesabı:</span>{" "}
-                  {status.selectedAdAccountName ?? "—"} ({status.selectedAdAccountId})
-                </p>
-              ) : (
-                <p className="mt-1 text-muted-foreground">
-                  Henüz reklam hesabı seçilmedi. Aşağıdan veya üst menüden bir hesap seçin.
-                </p>
-              )}
+          {connections.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Bağlı firmalar</p>
+              {connections.map((connection) => (
+                <div
+                  key={connection.id}
+                  className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="text-sm">
+                    <p className="font-medium">{getFirmDisplayName(connection)}</p>
+                    <p className="text-xs text-muted-foreground">Meta ID: {connection.metaUserId}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={disconnectingId === connection.id}
+                    onClick={() =>
+                      void handleDisconnect(connection.id, getFirmDisplayName(connection))
+                    }
+                  >
+                    {disconnectingId === connection.id ? "Kaldırılıyor..." : "Kaldır"}
+                  </Button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -150,57 +149,37 @@ function IntegrationsBody() {
                 value={accessToken}
                 onChange={(e) => setAccessToken(e.target.value)}
                 placeholder="EAAxxxx..."
-                required={!status?.connected}
+                required
                 autoComplete="off"
                 className="bg-background text-foreground"
               />
               <p className="text-xs text-muted-foreground">
-                Nereden:{" "}
-                <a
-                  href="https://developers.facebook.com/tools/explorer/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  Graph API Explorer
-                </a>
-                {" · İzinler: "}
-                <code className="rounded bg-muted px-1">ads_read</code>,{" "}
-                <code className="rounded bg-muted px-1">ads_management</code>
+                Her firmanın kendi tokenını girin. Aynı Meta kullanıcısı için token güncellenir.
               </p>
             </div>
 
             <Button type="submit" disabled={connecting}>
-              {connecting
-                ? "Bağlanıyor..."
-                : status?.connected
-                  ? "Token Güncelle"
-                  : "Meta Hesabını Bağla"}
+              {connecting ? "Bağlanıyor..." : "Firma Bağla"}
             </Button>
           </form>
-
-          {status?.connected && (
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => void handleDisconnect()}
-              disabled={disconnecting}
-            >
-              {disconnecting ? "Kaldırılıyor..." : "Bağlantıyı Kaldır"}
-            </Button>
-          )}
         </CardContent>
       </Card>
 
-      {status?.connected && (
+      {status?.connected && activeConnectionId && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Reklam Hesabı Seçimi</CardTitle>
+            <CardTitle className="text-base">Hesap Seçimi</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Tüm kampanya ve istatistik verileri seçilen hesaba göre çekilir.
+              Firma ve reklam hesabını isimle seçin. Veriler seçilen hesaba göre çekilir.
             </p>
           </CardHeader>
           <CardContent className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <FirmSelector
+              connections={connections}
+              value={activeConnectionId}
+              onChange={(connectionId) => void selectFirm(connectionId)}
+              loading={accountLoading}
+            />
             <BusinessSelector
               businesses={businesses}
               value={selectedBusinessId}

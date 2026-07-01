@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
-import { getMetaConnection, saveMetaConnection } from "@/lib/db";
+import { saveMetaConnection, setActiveConnection } from "@/lib/db";
 import { MetaApiError, normalizeAdAccountId, verifyMetaConnection, verifyMetaToken } from "@/lib/meta";
 import { handleApiError, jsonError } from "@/lib/api-utils";
 
@@ -13,34 +13,15 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       accessToken?: string;
       adAccountId?: string;
+      adAccountName?: string;
     };
 
     const accessToken = typeof body.accessToken === "string" ? body.accessToken.trim() : "";
     const adAccountId = typeof body.adAccountId === "string" ? body.adAccountId.trim() : "";
+    const adAccountName = typeof body.adAccountName === "string" ? body.adAccountName.trim() : "";
 
     if (!accessToken) {
       return jsonError("Meta Access Token gerekli", 400);
-    }
-
-    const existing = await getMetaConnection();
-    const normalizedAccountId = adAccountId ? normalizeAdAccountId(adAccountId) : "";
-
-    if (normalizedAccountId) {
-      const verified = await verifyMetaConnection(accessToken, normalizedAccountId);
-      await saveMetaConnection({
-        accessToken,
-        adAccountId: verified.adAccountId,
-        adAccountName: verified.accountName,
-        metaUserId: verified.metaUserId,
-      });
-
-      return NextResponse.json({
-        ok: true,
-        connected: true,
-        selectedAdAccountId: verified.adAccountId,
-        selectedAdAccountName: verified.accountName,
-        metaUserId: verified.metaUserId,
-      });
     }
 
     const verified = await verifyMetaToken(accessToken);
@@ -48,19 +29,33 @@ export async function POST(request: NextRequest) {
       return jsonError("Access Token gecersiz. Token ve izinleri kontrol edin.", 400);
     }
 
-    await saveMetaConnection({
+    let normalizedAccountId = adAccountId ? normalizeAdAccountId(adAccountId) : "";
+    let accountName = adAccountName;
+
+    if (normalizedAccountId) {
+      const accountVerified = await verifyMetaConnection(accessToken, normalizedAccountId);
+      normalizedAccountId = accountVerified.adAccountId;
+      accountName = accountName || accountVerified.accountName;
+    }
+
+    const saved = await saveMetaConnection({
       accessToken,
-      adAccountId: existing?.selectedAdAccountId ?? "",
-      adAccountName: existing?.selectedAdAccountName ?? "",
       metaUserId: verified.metaUserId,
+      metaUserName: verified.metaUserName,
+      adAccountId: normalizedAccountId,
+      adAccountName: accountName,
     });
+
+    await setActiveConnection(saved.id);
 
     return NextResponse.json({
       ok: true,
       connected: true,
-      selectedAdAccountId: existing?.selectedAdAccountId || null,
-      selectedAdAccountName: existing?.selectedAdAccountName || null,
-      metaUserId: verified.metaUserId,
+      connectionId: saved.id,
+      metaUserId: saved.metaUserId,
+      metaUserName: saved.metaUserName,
+      selectedAdAccountId: saved.selectedAdAccountId || null,
+      selectedAdAccountName: saved.selectedAdAccountName || null,
     });
   } catch (error) {
     if (error instanceof MetaApiError) {
