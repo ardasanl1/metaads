@@ -12,10 +12,19 @@ export function handleApiError(error: unknown): NextResponse {
 
   if (error instanceof Error) {
     if (error.message.includes("SESSION_SECRET tanimli degil")) {
-      return jsonError("SESSION_SECRET tanimli degil", 500);
+      return jsonError("SESSION_SECRET tanimli degil. Vercel env degiskenlerini kontrol edin.", 500);
+    }
+    if (error.message.includes("Vercel ortaminda Blob Store gerekli")) {
+      return jsonError(error.message, 500);
     }
     if (error.message.includes("Sifreli veri gecersiz")) {
       return jsonError("Kayitli gizli veri okunamadi", 500);
+    }
+    if (error.message.includes("EROFS") || error.message.includes("read-only")) {
+      return jsonError(
+        "Sunucuda dosya yazilamadi. Vercel icin Blob Store baglayin.",
+        500,
+      );
     }
   }
 

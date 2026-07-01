@@ -17,12 +17,24 @@ npm run dev
 
 ## Meta Bağlantısı
 
-OAuth veya Turso gerekmez. Panelde **Entegrasyonlar** sayfasından:
+**Entegrasyonlar** sayfasından:
 
-1. **Meta Access Token** — [Graph API Explorer](https://developers.facebook.com/tools/explorer/) (`ads_read`, `ads_management` izinleriyle)
-2. **Reklam Hesabı ID** — `act_123456789` formatında
+1. **Meta Access Token** — [Graph API Explorer](https://developers.facebook.com/tools/explorer/) (`ads_read`, `ads_management`)
+2. **Reklam Hesabı ID** — `act_123456789`
 
-Bağlantı bilgileri `.data/meta-connection.txt` dosyasına şifreli olarak kaydedilir (git'e eklenmez).
+Yerelde veriler `.data/meta-connection.txt` dosyasına kaydedilir.
+
+## Vercel Deployment
+
+1. Projeyi Vercel'e bağlayın.
+2. **Environment Variables** ekleyin:
+   - `APP_PASSWORD`
+   - `SESSION_SECRET`
+   - `META_API_VERSION` (opsiyonel)
+3. **Storage → Blob** oluşturun ve projeye bağlayın (`BLOB_READ_WRITE_TOKEN` otomatik eklenir).
+4. Redeploy yapın.
+
+Vercel'de dosya sistemi salt okunur olduğu için Blob Store zorunludur.
 
 ## Environment Variables
 
@@ -31,7 +43,4 @@ Bağlantı bilgileri `.data/meta-connection.txt` dosyasına şifreli olarak kayd
 | `APP_PASSWORD` | Panel giriş parolası |
 | `SESSION_SECRET` | Oturum imzalama ve token şifreleme |
 | `META_API_VERSION` | Opsiyonel, varsayılan `v23.0` |
-
-## Vercel Notu
-
-Dosya tabanlı depolama Vercel'de kalıcı değildir. Canlı ortamda ileride veritabanı eklenebilir; şimdilik yerel (`npm run dev`) kullanım için uygundur.
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob (canlı ortamda zorunlu) |
