@@ -114,20 +114,7 @@ export default function IntegrationsPage() {
           <div>
             <h2 className="text-base font-semibold text-gray-900">Meta Ads</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Access Token ve Reklam Hesabi ID ile baglanin.
-            </p>
-            <p className="mt-2 text-xs text-gray-500">
-              Token:{" "}
-              <a
-                href="https://developers.facebook.com/tools/explorer/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-800"
-              >
-                Graph API Explorer
-              </a>
-              {" · "}
-              Hesap ID: Business Manager → Reklam hesaplari (`act_...`)
+              Access Token ve Reklam Hesabı ID ile bağlanın.
             </p>
           </div>
           <span
@@ -181,11 +168,36 @@ export default function IntegrationsPage() {
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 autoComplete="off"
               />
+              <p className="mt-1 text-xs text-gray-500">
+                Nereden:{" "}
+                <a
+                  href="https://developers.facebook.com/tools/explorer/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  Graph API Explorer
+                </a>
+                {" → "}
+                <a
+                  href="https://developers.facebook.com/docs/graph-api/overview#access-tokens"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  Access Token rehberi
+                </a>
+              </p>
+              <p className="text-xs text-gray-500">
+                İzinler: <code className="rounded bg-gray-100 px-1">ads_read</code>,{" "}
+                <code className="rounded bg-gray-100 px-1">ads_management</code> → Generate Access
+                Token
+              </p>
             </div>
 
             <div>
               <label htmlFor="adAccountId" className="mb-1 block text-sm font-medium text-gray-700">
-                Reklam Hesabi ID
+                Reklam Hesabı ID
               </label>
               <input
                 id="adAccountId"
@@ -198,7 +210,21 @@ export default function IntegrationsPage() {
                 autoComplete="off"
               />
               <p className="mt-1 text-xs text-gray-500">
-                `act_` ile baslayan hesap ID&apos;si. Sadece rakam girerseniz otomatik eklenir.
+                Nereden:{" "}
+                <a
+                  href="https://business.facebook.com/settings/ad-accounts"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  Business Manager → Reklam Hesapları
+                </a>
+                {" → hesap adının altındaki "}
+                <code className="rounded bg-gray-100 px-1">act_...</code> ID
+              </p>
+              <p className="text-xs text-gray-500">
+                Sadece rakam girerseniz <code className="rounded bg-gray-100 px-1">act_</code> öneki
+                otomatik eklenir.
               </p>
             </div>
 
