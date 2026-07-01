@@ -66,14 +66,27 @@ export default function CampaignsContent() {
     <PanelLayout title="Kampanyalar">
       <div className="space-y-4">
         <div className="flex justify-end">
-          <button
-            type="button"
-            disabled
-            title="Meta kampanyası oluşturma sonraki aşamada eklenecek"
-            className="cursor-not-allowed rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-500"
-          >
-            Yeni Kampanya
-          </button>
+          {status?.connected && status.selectedAdAccountId ? (
+            <Link
+              href="/campaigns/new"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              Yeni Kampanya
+            </Link>
+          ) : (
+            <button
+              type="button"
+              disabled
+              title={
+                !status?.connected
+                  ? "Önce Meta hesabını bağlayın"
+                  : "Reklam hesabı bilgisi eksik"
+              }
+              className="cursor-not-allowed rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-500"
+            >
+              Yeni Kampanya
+            </button>
+          )}
         </div>
 
         {loading && (
