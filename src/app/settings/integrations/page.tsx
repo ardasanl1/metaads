@@ -280,6 +280,25 @@ function IntegrationsPanel() {
             <p className="mt-1 text-sm text-gray-500">
               Meta uygulama bilgilerini kaydedin ve reklam hesabinizi baglayin.
             </p>
+            <p className="mt-2 text-xs text-gray-500">
+              <a
+                href="https://developers.facebook.com/apps/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800"
+              >
+                Kurulum rehberi (My Apps)
+              </a>
+              {" · "}
+              <a
+                href="https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800"
+              >
+                Redirect URI dokumantasyonu
+              </a>
+            </p>
           </div>
           <span
             className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusClassName}`}
@@ -311,6 +330,18 @@ function IntegrationsPanel() {
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 autoComplete="off"
               />
+              <p className="mt-1 text-xs text-gray-500">
+                Nereden:{" "}
+                <a
+                  href="https://developers.facebook.com/apps/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  My Apps
+                </a>
+                {" → Settings → Basic → App ID"}
+              </p>
             </div>
 
             <div>
@@ -330,6 +361,18 @@ function IntegrationsPanel() {
                   App Secret kayitli. Degistirmek istemiyorsaniz bos birakin.
                 </p>
               )}
+              <p className="mt-1 text-xs text-gray-500">
+                Nereden:{" "}
+                <a
+                  href="https://developers.facebook.com/apps/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  My Apps
+                </a>
+                {" → Settings → Basic → App Secret → Show"}
+              </p>
             </div>
 
             <div>
@@ -353,6 +396,17 @@ function IntegrationsPanel() {
               <p className="text-xs text-gray-500">
                 Production: {productionRedirectSuggestion}
               </p>
+              <p className="mt-1 text-xs text-gray-500">
+                Nereden: Facebook Login → Settings →{" "}
+                <a
+                  href="https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  Valid OAuth Redirect URIs
+                </a>
+              </p>
             </div>
 
             <div>
@@ -370,6 +424,17 @@ function IntegrationsPanel() {
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 autoComplete="off"
               />
+              <p className="mt-1 text-xs text-gray-500">
+                Ornek: v23.0 —{" "}
+                <a
+                  href="https://developers.facebook.com/docs/graph-api/changelog"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  Graph API surumleri
+                </a>
+              </p>
             </div>
 
             {formError && (
