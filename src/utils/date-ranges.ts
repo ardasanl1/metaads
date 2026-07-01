@@ -52,3 +52,40 @@ export function getQuickFilterLabel(filter: QuickDateFilter): string {
   };
   return labels[filter];
 }
+
+function formatDisplayDate(isoDate: string): string {
+  try {
+    return new Date(`${isoDate}T12:00:00`).toLocaleDateString("tr-TR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return isoDate;
+  }
+}
+
+export function getDateRangeDisplayLabel(
+  filter: QuickDateFilter,
+  customSince?: string,
+  customUntil?: string,
+): string {
+  const range = getDateRangeForQuickFilter(filter);
+  const since = customSince || range.since;
+  const until = customUntil || range.until;
+
+  if (filter === "last_7_days") {
+    return "Son 7 gün";
+  }
+  if (filter === "last_30_days") {
+    return "Son 30 gün";
+  }
+  if (since && until) {
+    if (since === until) {
+      return formatDisplayDate(since);
+    }
+    return `${formatDisplayDate(since)} – ${formatDisplayDate(until)}`;
+  }
+
+  return getQuickFilterLabel(filter);
+}

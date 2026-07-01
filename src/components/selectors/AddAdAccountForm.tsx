@@ -1,0 +1,87 @@
+"use client";
+
+import { useState } from "react";
+import { Plus } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+type AddAdAccountFormProps = {
+  onAdd: (adAccountId: string) => Promise<void>;
+  disabled?: boolean;
+};
+
+export function AddAdAccountForm({ onAdd, disabled = false }: AddAdAccountFormProps) {
+  const [open, setOpen] = useState(false);
+  const [adAccountId, setAdAccountId] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit() {
+    const trimmed = adAccountId.trim();
+    if (!trimmed) {
+      toast.error("Reklam hesabı ID girin");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await onAdd(trimmed);
+      setAdAccountId("");
+      setOpen(false);
+      toast.success("Reklam hesabı eklendi");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Hesap eklenemedi";
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        className="shrink-0"
+      >
+        <Plus className="h-4 w-4" />
+        Yeni Hesap Ekle
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-end">
+      <div className="flex min-w-0 flex-col gap-1.5 sm:w-52">
+        <label className="text-xs font-medium text-muted-foreground">Reklam Hesabı ID</label>
+        <Input
+          value={adAccountId}
+          onChange={(event) => setAdAccountId(event.target.value)}
+          placeholder="act_123456789"
+          disabled={loading}
+          className="bg-background text-foreground"
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button type="button" size="sm" disabled={loading} onClick={() => void handleSubmit()}>
+          {loading ? "Ekleniyor..." : "Ekle"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={loading}
+          onClick={() => {
+            setOpen(false);
+            setAdAccountId("");
+          }}
+        >
+          İptal
+        </Button>
+      </div>
+    </div>
+  );
+}

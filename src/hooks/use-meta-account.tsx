@@ -28,6 +28,7 @@ type MetaAccountContextValue = {
   selectedAdAccountId: string | null;
   selectedAdAccountName: string | null;
   selectAdAccountById: (adAccountId: string) => Promise<void>;
+  addAdAccountManually: (adAccountId: string) => Promise<void>;
   accountKey: string;
   loading: boolean;
   error: string | null;
@@ -187,6 +188,41 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
     [adAccounts],
   );
 
+  const addAdAccountManually = useCallback(async (rawAdAccountId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await selectAdAccount(rawAdAccountId, "");
+      setSelectedAdAccountId(result.selectedAdAccountId);
+      setSelectedAdAccountName(result.selectedAdAccountName);
+      writeStorage(LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID, result.selectedAdAccountId);
+      setAdAccounts((current) => {
+        if (current.some((account) => account.id === result.selectedAdAccountId)) {
+          return current;
+        }
+        return [
+          ...current,
+          { id: result.selectedAdAccountId, name: result.selectedAdAccountName },
+        ];
+      });
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              selectedAdAccountId: result.selectedAdAccountId,
+              selectedAdAccountName: result.selectedAdAccountName,
+            }
+          : current,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Reklam hesabı eklenemedi";
+      setError(message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const retry = useCallback(() => {
     setReloadToken((value) => value + 1);
   }, []);
@@ -205,6 +241,7 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
       selectedAdAccountId,
       selectedAdAccountName,
       selectAdAccountById,
+      addAdAccountManually,
       accountKey,
       loading,
       error,
@@ -220,6 +257,7 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
       selectedAdAccountId,
       selectedAdAccountName,
       selectAdAccountById,
+      addAdAccountManually,
       accountKey,
       loading,
       error,

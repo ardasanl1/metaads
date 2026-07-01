@@ -4,12 +4,21 @@ import Link from "next/link";
 import PanelLayout from "@/components/PanelLayout";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { CampaignTable } from "@/components/campaigns/CampaignTable";
+import { DataDateRangeCaption } from "@/components/cards/DataDateRangeCaption";
 import { Button } from "@/components/ui/button";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { useCampaigns } from "@/hooks/use-campaigns";
 
 function DashboardBody() {
-  const { isReady, status, accountKey, error, retry, loading: accountLoading } = useMetaAccount();
+  const {
+    isReady,
+    status,
+    accountKey,
+    selectedAdAccountName,
+    error,
+    retry,
+    loading: accountLoading,
+  } = useMetaAccount();
   const {
     campaigns,
     loading: campaignsLoading,
@@ -55,13 +64,21 @@ function DashboardBody() {
 
       <div>
         <h2 className="mb-3 text-base font-semibold">Son Kampanyalar</h2>
-        <CampaignTable
-          campaigns={recentCampaigns}
-          loading={loading || !isReady}
-          sortField={sortField}
-          sortDirection={sortDirection}
-          onSort={toggleSort}
-        />
+        <div className="space-y-2">
+          <CampaignTable
+            campaigns={recentCampaigns}
+            loading={loading || !isReady}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onSort={toggleSort}
+          />
+          {isReady && !loading && (
+            <DataDateRangeCaption
+              filter="last_7_days"
+              accountName={selectedAdAccountName}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -5,12 +5,21 @@ import PanelLayout from "@/components/PanelLayout";
 import { CampaignTable } from "@/components/campaigns/CampaignTable";
 import { CampaignFiltersBar } from "@/components/campaigns/CampaignFilters";
 import { CampaignEmptyState } from "@/components/campaigns/CampaignEmptyState";
+import { DataDateRangeCaption } from "@/components/cards/DataDateRangeCaption";
 import { Button } from "@/components/ui/button";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { useCampaigns } from "@/hooks/use-campaigns";
 
 function CampaignsBody() {
-  const { isReady, status, accountKey, error, retry, loading: accountLoading } = useMetaAccount();
+  const {
+    isReady,
+    status,
+    accountKey,
+    selectedAdAccountName,
+    error,
+    retry,
+    loading: accountLoading,
+  } = useMetaAccount();
   const {
     campaigns,
     allCampaigns,
@@ -84,13 +93,23 @@ function CampaignsBody() {
       {showEmpty ? (
         <CampaignEmptyState />
       ) : (
-        <CampaignTable
-          campaigns={campaigns}
-          loading={loading}
-          sortField={sortField}
-          sortDirection={sortDirection}
-          onSort={toggleSort}
-        />
+        <div className="space-y-2">
+          <CampaignTable
+            campaigns={campaigns}
+            loading={loading}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onSort={toggleSort}
+          />
+          {isReady && !loading && (
+            <DataDateRangeCaption
+              filter={filters.quickDateFilter}
+              since={filters.since}
+              until={filters.until}
+              accountName={selectedAdAccountName}
+            />
+          )}
+        </div>
       )}
     </div>
   );

@@ -102,6 +102,17 @@ export async function verifyMetaConnection(
   };
 }
 
+export async function verifyMetaToken(
+  accessToken: string,
+): Promise<{ metaUserId: string | null }> {
+  try {
+    const me = await metaRequest<{ id: string }>("me?fields=id", { token: accessToken });
+    return { metaUserId: me.id };
+  } catch {
+    return { metaUserId: null };
+  }
+}
+
 export type Campaign = {
   id: string;
   name: string;

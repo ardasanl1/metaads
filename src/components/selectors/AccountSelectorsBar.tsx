@@ -2,6 +2,7 @@
 
 import { BusinessSelector } from "@/components/selectors/BusinessSelector";
 import { AdAccountSelector } from "@/components/selectors/AdAccountSelector";
+import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 
 export function AccountSelectorsBar() {
@@ -13,6 +14,7 @@ export function AccountSelectorsBar() {
     adAccounts,
     selectedAdAccountId,
     selectAdAccountById,
+    addAdAccountManually,
     loading,
   } = useMetaAccount();
 
@@ -21,7 +23,7 @@ export function AccountSelectorsBar() {
   }
 
   return (
-    <div className="flex flex-col gap-3 border-b border-border bg-card px-4 py-3 sm:flex-row sm:items-end sm:px-6">
+    <div className="flex flex-col gap-3 border-b border-border bg-card px-4 py-3 sm:flex-row sm:flex-wrap sm:items-end sm:px-6">
       <BusinessSelector
         businesses={businesses}
         value={selectedBusinessId}
@@ -33,6 +35,10 @@ export function AccountSelectorsBar() {
         value={selectedAdAccountId}
         onChange={(adAccountId) => void selectAdAccountById(adAccountId)}
         loading={loading}
+      />
+      <AddAdAccountForm
+        onAdd={addAdAccountManually}
+        disabled={loading}
       />
     </div>
   );

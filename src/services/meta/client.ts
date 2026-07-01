@@ -48,12 +48,18 @@ export async function fetchAdAccounts(businessId?: string | null): Promise<AdAcc
   return data.adAccounts;
 }
 
-export async function selectAdAccount(adAccountId: string, adAccountName: string): Promise<void> {
-  await apiFetch("/api/meta/ad-accounts/select", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ adAccountId, adAccountName }),
-  });
+export async function selectAdAccount(
+  adAccountId: string,
+  adAccountName: string,
+): Promise<{ selectedAdAccountId: string; selectedAdAccountName: string }> {
+  return apiFetch<{ selectedAdAccountId: string; selectedAdAccountName: string }>(
+    "/api/meta/ad-accounts/select",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adAccountId, adAccountName }),
+    },
+  );
 }
 
 export async function fetchCampaigns(params?: InsightsParams): Promise<CampaignWithInsights[]> {

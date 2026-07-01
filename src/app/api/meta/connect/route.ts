@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
-import { saveMetaConnection } from "@/lib/db";
-import { MetaApiError, normalizeAdAccountId, verifyMetaConnection } from "@/lib/meta";
+import { getMetaConnection, saveMetaConnection } from "@/lib/db";
+import { MetaApiError, normalizeAdAccountId, verifyMetaConnection, verifyMetaToken } from "@/lib/meta";
 import { handleApiError, jsonError } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
@@ -21,30 +21,50 @@ export async function POST(request: NextRequest) {
     if (!accessToken) {
       return jsonError("Meta Access Token gerekli", 400);
     }
-    if (!adAccountId) {
-      return jsonError("Reklam hesabi ID gerekli", 400);
+
+    const existing = await getMetaConnection();
+    const normalizedAccountId = adAccountId ? normalizeAdAccountId(adAccountId) : "";
+
+    if (normalizedAccountId) {
+      const verified = await verifyMetaConnection(accessToken, normalizedAccountId);
+      await saveMetaConnection({
+        accessToken,
+        adAccountId: normalizedAccountId,
+        adAccountName: verified.accountName,
+        metaUserId: verified.metaUserId,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        connected: true,
+        selectedAdAccountId: normalizedAccountId,
+        selectedAdAccountName: verified.accountName,
+        metaUserId: verified.metaUserId,
+      });
     }
 
-    const normalizedAccountId = normalizeAdAccountId(adAccountId);
-    const verified = await verifyMetaConnection(accessToken, normalizedAccountId);
+    const verified = await verifyMetaToken(accessToken);
+    if (!verified.metaUserId) {
+      return jsonError("Access Token gecersiz. Token ve izinleri kontrol edin.", 400);
+    }
 
     await saveMetaConnection({
       accessToken,
-      adAccountId: normalizedAccountId,
-      adAccountName: verified.accountName,
+      adAccountId: existing?.selectedAdAccountId ?? "",
+      adAccountName: existing?.selectedAdAccountName ?? "",
       metaUserId: verified.metaUserId,
     });
 
     return NextResponse.json({
       ok: true,
       connected: true,
-      selectedAdAccountId: normalizedAccountId,
-      selectedAdAccountName: verified.accountName,
+      selectedAdAccountId: existing?.selectedAdAccountId || null,
+      selectedAdAccountName: existing?.selectedAdAccountName || null,
       metaUserId: verified.metaUserId,
     });
   } catch (error) {
     if (error instanceof MetaApiError) {
-      return jsonError("Token veya reklam hesabi gecersiz. Bilgileri kontrol edin.", error.status);
+      return jsonError("Token gecersiz. Bilgileri kontrol edin.", error.status);
     }
     return handleApiError(error);
   }

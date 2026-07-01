@@ -20,8 +20,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       connected: true,
       metaUserId: connection.metaUserId,
-      selectedAdAccountId: connection.selectedAdAccountId,
-      selectedAdAccountName: connection.selectedAdAccountName,
+      selectedAdAccountId: connection.selectedAdAccountId || null,
+      selectedAdAccountName: connection.selectedAdAccountName || null,
     });
   } catch (error) {
     return handleApiError(error);
