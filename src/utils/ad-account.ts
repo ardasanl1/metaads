@@ -61,8 +61,13 @@ export function findAdAccountById(
   return accounts.find((account) => account.id === normalizedId);
 }
 
-export function formatAdAccountLabel(account: Pick<NormalizedAdAccount, "name">): string {
-  return account.name;
+export function formatAdAccountLabel(
+  account: Pick<NormalizedAdAccount, "name"> & { id?: string },
+): string {
+  if (account.name?.trim()) {
+    return account.name.trim();
+  }
+  return "Reklam hesabı";
 }
 
 export function getFirmDisplayName(connection: {
@@ -76,10 +81,7 @@ export function getFirmDisplayName(connection: {
   if (connection.metaUserName?.trim()) {
     return connection.metaUserName.trim();
   }
-  if (connection.metaUserId) {
-    return `İşletme ${connection.metaUserId}`;
-  }
-  return "Firma";
+  return "İşletme";
 }
 
 export function linkedAccountsToAdAccounts(

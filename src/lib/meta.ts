@@ -113,14 +113,36 @@ export async function verifyMetaConnection(
 export async function verifyMetaToken(
   accessToken: string,
 ): Promise<{ metaUserId: string | null; metaUserName: string | null }> {
+  return resolveTokenIdentity(accessToken);
+}
+
+/** Token sahibini ve bağlı işletme adını çözer. */
+export async function resolveTokenIdentity(
+  accessToken: string,
+): Promise<{ metaUserId: string | null; metaUserName: string | null }> {
+  let metaUserId: string | null = null;
+  let metaUserName: string | null = null;
+
   try {
     const me = await metaRequest<{ id: string; name?: string }>("me?fields=id,name", {
       token: accessToken,
     });
-    return { metaUserId: me.id, metaUserName: me.name ?? null };
+    metaUserId = me.id;
+    metaUserName = me.name?.trim() || null;
   } catch {
     return { metaUserId: null, metaUserName: null };
   }
+
+  try {
+    const businesses = await getBusinesses({ token: accessToken });
+    if (businesses.length > 0) {
+      metaUserName = businesses[0].name.trim();
+    }
+  } catch {
+    // me.name veya mevcut değer korunur
+  }
+
+  return { metaUserId, metaUserName };
 }
 
 export type Campaign = {

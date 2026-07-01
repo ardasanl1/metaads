@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
 import { saveMetaConnection, setActiveConnection } from "@/lib/db";
-import { MetaApiError, normalizeAdAccountId, verifyMetaConnection, verifyMetaToken } from "@/lib/meta";
+import { MetaApiError, normalizeAdAccountId, resolveTokenIdentity, verifyMetaConnection } from "@/lib/meta";
 import { handleApiError, jsonError } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       return jsonError("Meta Access Token gerekli", 400);
     }
 
-    const verified = await verifyMetaToken(accessToken);
+    const verified = await resolveTokenIdentity(accessToken);
     if (!verified.metaUserId) {
       return jsonError("Access Token gecersiz. Token ve izinleri kontrol edin.", 400);
     }

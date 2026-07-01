@@ -433,6 +433,20 @@ export async function saveMetaConnection(input: {
   return toSummary(toMetaConnection(nextConnection));
 }
 
+export async function updateMetaUserName(
+  connectionId: string,
+  metaUserName: string,
+): Promise<void> {
+  const connections = await readAllStored();
+  const now = new Date().toISOString();
+  const next = connections.map((item) =>
+    item.id === connectionId
+      ? { ...item, metaUserName: metaUserName.trim(), updatedAt: now }
+      : item,
+  );
+  await writeAllStored(next);
+}
+
 export async function setActiveConnection(connectionId: string): Promise<MetaConnectionSummary | null> {
   const connections = await readAllStored();
   if (!connections.some((item) => item.id === connectionId)) {

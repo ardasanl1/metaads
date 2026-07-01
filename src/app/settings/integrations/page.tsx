@@ -18,7 +18,6 @@ function IntegrationsBody() {
     status,
     connections,
     activeConnectionId,
-    activeConnection,
     selectFirm,
     adAccounts,
     selectedAdAccountId,
@@ -120,7 +119,6 @@ function IntegrationsBody() {
                 >
                   <div className="text-sm">
                     <p className="font-medium">{getFirmDisplayName(connection)}</p>
-                    <p className="text-xs text-muted-foreground">Meta ID: {connection.metaUserId}</p>
                     <p className="text-xs text-muted-foreground">
                       {connection.linkedAdAccounts.length} kayıtlı reklam hesabı
                     </p>
@@ -184,7 +182,6 @@ function IntegrationsBody() {
               value={activeConnectionId}
               onChange={(connectionId) => void selectFirm(connectionId)}
               loading={accountLoading}
-              metaUserId={activeConnection?.metaUserId}
             />
             <AdAccountSelector
               adAccounts={adAccounts}

@@ -10,7 +10,6 @@ export function AccountSelectorsBar() {
     status,
     connections,
     activeConnectionId,
-    activeConnection,
     selectFirm,
     adAccounts,
     selectedAdAccountId,
@@ -30,7 +29,6 @@ export function AccountSelectorsBar() {
         value={activeConnectionId}
         onChange={(connectionId) => void selectFirm(connectionId)}
         loading={loading}
-        metaUserId={activeConnection?.metaUserId}
       />
       <AdAccountSelector
         adAccounts={adAccounts}
