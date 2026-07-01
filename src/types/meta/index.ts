@@ -89,16 +89,19 @@ export type DateRangePreset =
   | "today"
   | "yesterday"
   | "last_7d"
-  | "last_30d"
+  | "last_14d"
   | "this_month"
+  | "last_month"
   | "custom";
 
 export type QuickDateFilter =
   | "today"
   | "yesterday"
   | "last_7_days"
-  | "last_30_days"
-  | "this_month";
+  | "last_14_days"
+  | "this_month"
+  | "last_month"
+  | "custom";
 
 export type CampaignSortField = "spend" | "roas" | "ctr" | "purchases" | "budget";
 export type SortDirection = "asc" | "desc";

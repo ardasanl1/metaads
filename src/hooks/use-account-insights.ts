@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { ParsedInsights, QuickDateFilter } from "@/types/meta";
 import { fetchAccountInsights } from "@/services/meta/client";
-import { getDateRangeForQuickFilter } from "@/utils/date-ranges";
+import { buildInsightsParamsFromQuickFilter } from "@/utils/date-ranges";
 
 export function useAccountInsights(accountKey: string, enabled: boolean, quickFilter: QuickDateFilter) {
   const [insights, setInsights] = useState<ParsedInsights | null>(null);
@@ -21,11 +21,7 @@ export function useAccountInsights(accountKey: string, enabled: boolean, quickFi
     setLoading(true);
     setError(null);
     try {
-      const range = getDateRangeForQuickFilter(quickFilter);
-      const params =
-        range.datePreset && quickFilter !== "this_month"
-          ? { datePreset: range.datePreset }
-          : { since: range.since, until: range.until, datePreset: range.datePreset };
+      const params = buildInsightsParamsFromQuickFilter(quickFilter);
 
       const data = await fetchAccountInsights(params);
       setInsights(data);

@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { CampaignFilters, CampaignSortField, CampaignWithInsights, SortDirection } from "@/types/meta";
-import { fetchCampaigns, type InsightsParams } from "@/services/meta/client";
+import { fetchCampaigns } from "@/services/meta/client";
 import {
   filterCampaigns,
   getDefaultCampaignFilters,
   sortCampaigns,
 } from "@/utils/campaign-filters";
-import { getDateRangeForQuickFilter } from "@/utils/date-ranges";
+import { buildInsightsParamsFromQuickFilter } from "@/utils/date-ranges";
 
 export function useCampaigns(accountKey: string, enabled: boolean) {
   const [campaigns, setCampaigns] = useState<CampaignWithInsights[]>([]);
@@ -19,16 +19,12 @@ export function useCampaigns(accountKey: string, enabled: boolean) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const buildInsightsParams = useCallback((): InsightsParams => {
-    const range = getDateRangeForQuickFilter(filters.quickDateFilter);
-    if (range.datePreset && filters.quickDateFilter !== "this_month") {
-      return { datePreset: range.datePreset };
-    }
-    return {
-      since: filters.since || range.since,
-      until: filters.until || range.until,
-      datePreset: range.datePreset,
-    };
+  const buildInsightsParams = useCallback(() => {
+    return buildInsightsParamsFromQuickFilter(
+      filters.quickDateFilter,
+      filters.since,
+      filters.until,
+    );
   }, [filters]);
 
   const load = useCallback(async () => {

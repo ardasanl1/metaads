@@ -10,15 +10,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { CampaignFilters, CampaignWithInsights, QuickDateFilter } from "@/types/meta";
-import { getQuickFilterLabel } from "@/utils/date-ranges";
+import { applyQuickDateFilter, getQuickFilterLabel } from "@/utils/date-ranges";
 import { getUniqueObjectives, getUniqueStatuses } from "@/utils/campaign-filters";
 
 const QUICK_FILTERS: QuickDateFilter[] = [
   "today",
   "yesterday",
   "last_7_days",
-  "last_30_days",
+  "last_14_days",
   "this_month",
+  "last_month",
 ];
 
 type CampaignFiltersBarProps = {
@@ -87,7 +88,11 @@ export function CampaignFiltersBar({ filters, campaigns, onChange }: CampaignFil
               type="date"
               value={filters.since}
               onChange={(event) =>
-                onChange({ ...filters, since: event.target.value, quickDateFilter: "last_7_days" })
+                onChange({
+                  ...filters,
+                  since: event.target.value,
+                  quickDateFilter: "custom",
+                })
               }
             />
           </div>
@@ -97,7 +102,11 @@ export function CampaignFiltersBar({ filters, campaigns, onChange }: CampaignFil
               type="date"
               value={filters.until}
               onChange={(event) =>
-                onChange({ ...filters, until: event.target.value, quickDateFilter: "last_7_days" })
+                onChange({
+                  ...filters,
+                  until: event.target.value,
+                  quickDateFilter: "custom",
+                })
               }
             />
           </div>
@@ -111,7 +120,18 @@ export function CampaignFiltersBar({ filters, campaigns, onChange }: CampaignFil
             type="button"
             size="sm"
             variant={filters.quickDateFilter === filter ? "default" : "outline"}
-            onClick={() => onChange({ ...filters, quickDateFilter: filter })}
+            onClick={() =>
+              onChange(
+                applyQuickDateFilter(
+                  {
+                    search: filters.search,
+                    status: filters.status,
+                    objective: filters.objective,
+                  },
+                  filter,
+                ),
+              )
+            }
           >
             {getQuickFilterLabel(filter)}
           </Button>

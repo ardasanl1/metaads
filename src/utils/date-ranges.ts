@@ -6,13 +6,25 @@ export type DateRange = {
   datePreset?: DateRangePreset;
 };
 
+export type InsightsParams = {
+  datePreset?: string;
+  since?: string;
+  until?: string;
+};
+
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function startOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
+/** Meta preset kullanan filtreler — takvim/rolling aralık net ayrılır. */
+const PRESET_ONLY_FILTERS: QuickDateFilter[] = [
+  "today",
+  "yesterday",
+  "last_7_days",
+  "last_14_days",
+  "this_month",
+  "last_month",
+];
 
 export function getDateRangeForQuickFilter(filter: QuickDateFilter): DateRange {
   const today = new Date();
@@ -29,16 +41,15 @@ export function getDateRangeForQuickFilter(filter: QuickDateFilter): DateRange {
     }
     case "last_7_days":
       return { since: "", until: "", datePreset: "last_7d" };
-    case "last_30_days":
-      return { since: "", until: "", datePreset: "last_30d" };
+    case "last_14_days":
+      return { since: "", until: "", datePreset: "last_14d" };
     case "this_month":
-      return {
-        since: formatDate(startOfMonth(today)),
-        until: todayStr,
-        datePreset: "this_month",
-      };
+      return { since: "", until: "", datePreset: "this_month" };
+    case "last_month":
+      return { since: "", until: "", datePreset: "last_month" };
+    case "custom":
     default:
-      return { since: "", until: "", datePreset: "last_7d" };
+      return { since: "", until: "", datePreset: "custom" };
   }
 }
 
@@ -47,10 +58,35 @@ export function getQuickFilterLabel(filter: QuickDateFilter): string {
     today: "Bugün",
     yesterday: "Dün",
     last_7_days: "Son 7 Gün",
-    last_30_days: "Son 30 Gün",
+    last_14_days: "Son 14 Gün",
     this_month: "Bu Ay",
+    last_month: "Geçen Ay",
+    custom: "Özel",
   };
   return labels[filter];
+}
+
+export function buildInsightsParamsFromQuickFilter(
+  filter: QuickDateFilter,
+  customSince?: string,
+  customUntil?: string,
+): InsightsParams {
+  if (filter === "custom") {
+    if (customSince && customUntil) {
+      return { since: customSince, until: customUntil };
+    }
+    return { datePreset: "last_7d" };
+  }
+
+  const range = getDateRangeForQuickFilter(filter);
+  if (range.datePreset && range.datePreset !== "custom") {
+    return { datePreset: range.datePreset };
+  }
+
+  return {
+    since: customSince || range.since,
+    until: customUntil || range.until,
+  };
 }
 
 function formatDisplayDate(isoDate: string): string {
@@ -70,16 +106,13 @@ export function getDateRangeDisplayLabel(
   customSince?: string,
   customUntil?: string,
 ): string {
-  const range = getDateRangeForQuickFilter(filter);
-  const since = customSince || range.since;
-  const until = customUntil || range.until;
+  if (filter !== "custom" && PRESET_ONLY_FILTERS.includes(filter)) {
+    return getQuickFilterLabel(filter);
+  }
 
-  if (filter === "last_7_days") {
-    return "Son 7 gün";
-  }
-  if (filter === "last_30_days") {
-    return "Son 30 gün";
-  }
+  const since = customSince?.trim();
+  const until = customUntil?.trim();
+
   if (since && until) {
     if (since === until) {
       return formatDisplayDate(since);
@@ -88,4 +121,24 @@ export function getDateRangeDisplayLabel(
   }
 
   return getQuickFilterLabel(filter);
+}
+
+export function applyQuickDateFilter(
+  filters: { search: string; status: string; objective: string },
+  filter: QuickDateFilter,
+): {
+  search: string;
+  status: string;
+  objective: string;
+  quickDateFilter: QuickDateFilter;
+  since: string;
+  until: string;
+} {
+  const range = getDateRangeForQuickFilter(filter);
+  return {
+    ...filters,
+    quickDateFilter: filter,
+    since: range.since,
+    until: range.until,
+  };
 }
