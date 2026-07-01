@@ -3,6 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hashPassword, verifyPasswordHash } from "./password";
+import { verifyCredentials } from "./auth";
 
 export type PanelUser = {
   id: string;
@@ -158,17 +159,70 @@ async function insertUser(user: StoredUser): Promise<void> {
 }
 
 export async function ensureDefaultPanelUser(): Promise<void> {
-  const users = await readAllUsers();
-  if (users.length > 0) return;
-
   const email = process.env.APP_EMAIL?.trim();
   const password = process.env.APP_PASSWORD;
   if (!email || !password) return;
 
+  const normalizedEmail = normalizeEmail(email);
+  const users = await readAllUsers();
+  const existing = users.find((item) => item.email === normalizedEmail);
+
+  if (existing) {
+    if (!verifyPasswordHash(password, existing.passwordHash)) {
+      await updateUserPassword(existing.id, password);
+    }
+    return;
+  }
+
   const now = new Date().toISOString();
   await insertUser({
     id: randomUUID(),
-    email: normalizeEmail(email),
+    email: normalizedEmail,
+    passwordHash: hashPassword(password),
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+async function updateUserPassword(userId: string, password: string): Promise<void> {
+  const passwordHash = hashPassword(password);
+  const updatedAt = new Date().toISOString();
+
+  if (hasPostgres()) {
+    await ensureUsersTable();
+    const sql = getSql();
+    await sql`
+      UPDATE panel_users
+      SET password_hash = ${passwordHash}, updated_at = ${updatedAt}
+      WHERE id = ${userId}
+    `;
+    return;
+  }
+
+  const users = readAllUsersFromFile();
+  writeAllUsersToFile(
+    users.map((user) =>
+      user.id === userId ? { ...user, passwordHash, updatedAt } : user,
+    ),
+  );
+}
+
+async function syncEnvUserToDatabase(email: string, password: string): Promise<void> {
+  const normalizedEmail = normalizeEmail(email);
+  const users = await readAllUsers();
+  const existing = users.find((item) => item.email === normalizedEmail);
+
+  if (existing) {
+    if (!verifyPasswordHash(password, existing.passwordHash)) {
+      await updateUserPassword(existing.id, password);
+    }
+    return;
+  }
+
+  const now = new Date().toISOString();
+  await insertUser({
+    id: randomUUID(),
+    email: normalizedEmail,
     passwordHash: hashPassword(password),
     createdAt: now,
     updatedAt: now,
@@ -184,8 +238,25 @@ export async function authenticatePanelUser(
   const normalizedEmail = normalizeEmail(email);
   const users = await readAllUsers();
   const user = users.find((item) => item.email === normalizedEmail);
-  if (!user) return null;
-  if (!verifyPasswordHash(password, user.passwordHash)) return null;
 
-  return toPanelUser(user);
+  if (user && verifyPasswordHash(password, user.passwordHash)) {
+    return toPanelUser(user);
+  }
+
+  if (verifyCredentials(email, password)) {
+    await syncEnvUserToDatabase(normalizedEmail, password);
+    const synced = (await readAllUsers()).find((item) => item.email === normalizedEmail);
+    if (synced) {
+      return toPanelUser(synced);
+    }
+    const now = new Date().toISOString();
+    return {
+      id: "env",
+      email: normalizedEmail,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  return null;
 }
