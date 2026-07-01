@@ -10,8 +10,13 @@ import {
   sortCampaigns,
 } from "@/utils/campaign-filters";
 import { buildInsightsParamsFromQuickFilter } from "@/utils/date-ranges";
+import type { DateFilterState } from "@/hooks/use-date-filter";
 
-export function useCampaigns(accountKey: string, enabled: boolean) {
+export function useCampaigns(
+  accountKey: string,
+  enabled: boolean,
+  externalDateFilter?: DateFilterState,
+) {
   const [campaigns, setCampaigns] = useState<CampaignWithInsights[]>([]);
   const [filters, setFilters] = useState<CampaignFilters>(getDefaultCampaignFilters);
   const [sortField, setSortField] = useState<CampaignSortField>("spend");
@@ -20,12 +25,19 @@ export function useCampaigns(accountKey: string, enabled: boolean) {
   const [error, setError] = useState<string | null>(null);
 
   const buildInsightsParams = useCallback(() => {
+    if (externalDateFilter) {
+      return buildInsightsParamsFromQuickFilter(
+        externalDateFilter.quickDateFilter,
+        externalDateFilter.since,
+        externalDateFilter.until,
+      );
+    }
     return buildInsightsParamsFromQuickFilter(
       filters.quickDateFilter,
       filters.since,
       filters.until,
     );
-  }, [filters]);
+  }, [externalDateFilter, filters]);
 
   const load = useCallback(async () => {
     if (!enabled) {

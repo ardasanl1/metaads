@@ -1,8 +1,11 @@
 import type {
   AdAccount,
+  AdSetWithInsights,
+  AdWithInsights,
   ApiErrorResponse,
   Business,
   CampaignWithInsights,
+  CreateCampaignPayload,
   MetaConnectionStatus,
   MetaConnectionSummary,
   ParsedInsights,
@@ -98,6 +101,77 @@ export async function fetchCampaigns(params?: InsightsParams): Promise<CampaignW
     `/api/meta/campaigns${buildQuery(params ?? {})}`,
   );
   return data.campaigns;
+}
+
+export async function fetchCampaign(
+  id: string,
+  params?: InsightsParams,
+): Promise<CampaignWithInsights> {
+  const data = await apiFetch<{ campaign: CampaignWithInsights }>(
+    `/api/meta/campaigns/${id}${buildQuery(params ?? {})}`,
+  );
+  return data.campaign;
+}
+
+export async function createCampaign(payload: CreateCampaignPayload): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>("/api/meta/campaigns", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCampaign(
+  id: string,
+  input: { name?: string; status?: "ACTIVE" | "PAUSED" },
+): Promise<void> {
+  await apiFetch(`/api/meta/campaigns/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchAdSets(
+  campaignId: string,
+  params?: InsightsParams,
+): Promise<AdSetWithInsights[]> {
+  const data = await apiFetch<{ adsets: AdSetWithInsights[] }>(
+    `/api/meta/adsets${buildQuery({ campaignId, ...params })}`,
+  );
+  return data.adsets;
+}
+
+export async function updateAdSet(
+  id: string,
+  input: { name?: string; status?: "ACTIVE" | "PAUSED"; dailyBudget?: number },
+): Promise<void> {
+  await apiFetch(`/api/meta/adsets/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchAds(
+  adSetId: string,
+  params?: InsightsParams,
+): Promise<AdWithInsights[]> {
+  const data = await apiFetch<{ ads: AdWithInsights[] }>(
+    `/api/meta/ads${buildQuery({ adSetId, ...params })}`,
+  );
+  return data.ads;
+}
+
+export async function updateAd(
+  id: string,
+  input: { name?: string; status?: "ACTIVE" | "PAUSED" },
+): Promise<void> {
+  await apiFetch(`/api/meta/ads/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 }
 
 export async function fetchAccountInsights(params?: InsightsParams): Promise<ParsedInsights> {

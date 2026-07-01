@@ -5,18 +5,18 @@ import { StatsGrid } from "@/components/cards/StatsGrid";
 import { DataDateRangeCaption } from "@/components/cards/DataDateRangeCaption";
 import { useAccountInsights } from "@/hooks/use-account-insights";
 import { useMetaAccount } from "@/hooks/use-meta-account";
-import type { QuickDateFilter } from "@/types/meta";
+import type { DateFilterState } from "@/hooks/use-date-filter";
 
 type DashboardStatsProps = {
-  quickFilter?: QuickDateFilter;
+  dateFilter: DateFilterState;
 };
 
-export function DashboardStats({ quickFilter = "last_7_days" }: DashboardStatsProps) {
+export function DashboardStats({ dateFilter }: DashboardStatsProps) {
   const { accountKey, isReady, selectedAdAccountName, error, retry } = useMetaAccount();
   const { insights, loading, error: insightsError, reload } = useAccountInsights(
     accountKey,
     isReady,
-    quickFilter,
+    dateFilter,
   );
 
   const displayError = error ?? insightsError;
@@ -41,7 +41,9 @@ export function DashboardStats({ quickFilter = "last_7_days" }: DashboardStatsPr
       <StatsGrid insights={insights} loading={loading || !isReady} />
       {isReady && (
         <DataDateRangeCaption
-          filter={quickFilter}
+          filter={dateFilter.quickDateFilter}
+          since={dateFilter.since}
+          until={dateFilter.until}
           accountName={selectedAdAccountName}
         />
       )}

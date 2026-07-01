@@ -31,6 +31,6 @@ export function handleApiError(error: unknown): NextResponse {
     }
   }
 
-  console.error("API hatasi:", error instanceof Error ? error.message : error);
+  console.error("API hatasi:", error instanceof Error ? error.message : "Bilinmeyen hata");
   return jsonError("Beklenmeyen bir hata olustu", 500);
 }

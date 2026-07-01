@@ -85,6 +85,46 @@ export type CampaignWithInsights = CampaignBase & {
   insights: ParsedInsights;
 };
 
+export type AdSetBase = {
+  id: string;
+  campaign_id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
+  start_time?: string;
+  end_time?: string;
+};
+
+export type AdSetWithInsights = AdSetBase & {
+  insights: ParsedInsights | null;
+};
+
+export type AdBase = {
+  id: string;
+  name: string;
+  campaign_id: string;
+  adset_id: string;
+  status: string;
+  effective_status: string;
+  created_time: string;
+  updated_time: string;
+  creative?: { id: string; name?: string; thumbnail_url?: string };
+};
+
+export type AdWithInsights = AdBase & {
+  insights: ParsedInsights | null;
+};
+
+export type CreateCampaignPayload = {
+  name: string;
+  objective: string;
+  buyingType: string;
+  specialAdCategories: string[];
+  status?: "ACTIVE" | "PAUSED";
+};
+
 export type DateRangePreset =
   | "today"
   | "yesterday"

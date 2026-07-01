@@ -1,11 +1,13 @@
 import "server-only";
 import { getMetaConnection, getMetaConnectionById } from "./db";
+import { extractMetaErrorMessage } from "./meta-errors";
 import {
   normalizeAdAccountId,
   normalizeAdAccountList,
   normalizeAdAccountRecord,
   type AdAccountRaw,
 } from "@/utils/ad-account";
+import type { BuyingType, CampaignObjective, CampaignStatus, SpecialAdCategory } from "@/utils/campaign-constants";
 
 export { normalizeAdAccountId };
 
@@ -33,7 +35,7 @@ async function parseMetaResponse<T>(response: Response): Promise<T> {
   };
 
   if (!response.ok || data.error) {
-    const message = data.error?.message || "Meta API istegi basarisiz oldu";
+    const message = extractMetaErrorMessage(data, "Meta API isteği başarısız oldu");
     throw new MetaApiError(message, response.ok ? 502 : response.status);
   }
 
@@ -258,6 +260,58 @@ export async function getCampaigns(
   return fetchPaged<Campaign>(`${accountPath}/campaigns?fields=${fields}&limit=100`);
 }
 
+export async function getCampaign(
+  campaignId: string,
+  query?: InsightsQuery,
+): Promise<Campaign | null> {
+  const baseFields =
+    "id,name,objective,status,effective_status,created_time,updated_time,daily_budget,lifetime_budget";
+  const insightsParam = buildInsightsParam(query);
+  const fields = insightsParam ? `${baseFields},${insightsParam}` : baseFields;
+
+  try {
+    return await metaRequest<Campaign>(`${campaignId}?fields=${fields}`);
+  } catch (error) {
+    if (error instanceof MetaApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export type CreateCampaignInput = {
+  name: string;
+  objective: CampaignObjective;
+  buyingType: BuyingType;
+  specialAdCategories: SpecialAdCategory[];
+  status?: CampaignStatus;
+};
+
+export async function createCampaign(
+  adAccountId: string,
+  input: CreateCampaignInput,
+): Promise<{ id: string }> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  if (!accountPath) {
+    throw new MetaApiError("Reklam hesabı ID gerekli", 400);
+  }
+
+  const categories = input.specialAdCategories.filter((category) => category !== "NONE");
+
+  const body: Record<string, string> = {
+    name: input.name.trim(),
+    objective: input.objective,
+    buying_type: input.buyingType,
+    status: input.status ?? "PAUSED",
+    special_ad_categories: JSON.stringify(categories),
+  };
+
+  return metaRequest<{ id: string }>(`${accountPath}/campaigns`, {
+    method: "POST",
+    body,
+  });
+}
+
 export type AdSet = {
   id: string;
   campaign_id: string;
@@ -269,11 +323,14 @@ export type AdSet = {
   start_time?: string;
   end_time?: string;
   targeting?: unknown;
+  insights?: { data?: MetaInsightRaw[] };
 };
 
-export async function getAdSets(campaignId: string): Promise<AdSet[]> {
-  const fields =
+export async function getAdSets(campaignId: string, query?: InsightsQuery): Promise<AdSet[]> {
+  const baseFields =
     "id,campaign_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,targeting";
+  const insightsParam = buildInsightsParam(query);
+  const fields = insightsParam ? `${baseFields},${insightsParam}` : baseFields;
   return fetchPaged<AdSet>(`${campaignId}/adsets?fields=${fields}&limit=100`);
 }
 
@@ -295,11 +352,14 @@ export type Ad = {
   creative?: AdCreative;
   issues_info?: unknown;
   ad_review_feedback?: unknown;
+  insights?: { data?: MetaInsightRaw[] };
 };
 
-export async function getAds(adSetId: string): Promise<Ad[]> {
-  const fields =
+export async function getAds(adSetId: string, query?: InsightsQuery): Promise<Ad[]> {
+  const baseFields =
     "id,name,campaign_id,adset_id,status,effective_status,created_time,updated_time,creative{id,name,thumbnail_url},issues_info,ad_review_feedback";
+  const insightsParam = buildInsightsParam(query);
+  const fields = insightsParam ? `${baseFields},${insightsParam}` : baseFields;
   return fetchPaged<Ad>(`${adSetId}/ads?fields=${fields}&limit=100`);
 }
 

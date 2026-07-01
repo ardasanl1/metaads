@@ -5,11 +5,14 @@ import PanelLayout from "@/components/PanelLayout";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { CampaignTable } from "@/components/campaigns/CampaignTable";
 import { DataDateRangeCaption } from "@/components/cards/DataDateRangeCaption";
+import { QuickDateFilterBar } from "@/components/filters/QuickDateFilterBar";
 import { Button } from "@/components/ui/button";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { useCampaigns } from "@/hooks/use-campaigns";
+import { useDateFilter } from "@/hooks/use-date-filter";
 
 function DashboardBody() {
+  const dateFilter = useDateFilter();
   const {
     isReady,
     status,
@@ -27,7 +30,7 @@ function DashboardBody() {
     sortField,
     sortDirection,
     toggleSort,
-  } = useCampaigns(accountKey, isReady);
+  } = useCampaigns(accountKey, isReady, dateFilter);
 
   const recentCampaigns = campaigns.slice(0, 5);
   const displayError = error ?? campaignsError;
@@ -60,7 +63,14 @@ function DashboardBody() {
         </div>
       )}
 
-      <DashboardStats quickFilter="last_7_days" />
+      {isReady && (
+        <QuickDateFilterBar
+          value={dateFilter}
+          onChange={(value) => dateFilter.setState(value)}
+        />
+      )}
+
+      <DashboardStats dateFilter={dateFilter} />
 
       <div>
         <h2 className="mb-3 text-base font-semibold">Son Kampanyalar</h2>
@@ -74,7 +84,9 @@ function DashboardBody() {
           />
           {isReady && !loading && (
             <DataDateRangeCaption
-              filter="last_7_days"
+              filter={dateFilter.quickDateFilter}
+              since={dateFilter.since}
+              until={dateFilter.until}
               accountName={selectedAdAccountName}
             />
           )}

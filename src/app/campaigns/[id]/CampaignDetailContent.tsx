@@ -2,61 +2,80 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import PanelLayout from "@/components/PanelLayout";
-import { dailyBudgetFromMeta, formatMetaDate, metaStatusColor } from "@/lib/status-utils";
+import { CampaignInsightsGrid } from "@/components/campaigns/CampaignInsightsGrid";
+import { QuickDateFilterBar } from "@/components/filters/QuickDateFilterBar";
+import { DataDateRangeCaption } from "@/components/cards/DataDateRangeCaption";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCampaignDetail, type PendingAction } from "@/hooks/use-campaign-detail";
+import { useDateFilter } from "@/hooks/use-date-filter";
+import { useMetaAccount } from "@/hooks/use-meta-account";
+import { formatMetaDate } from "@/lib/status-utils";
+import { centsToCurrency, formatCurrency } from "@/utils/format";
+import { formatInsightValue, INSIGHT_COLUMNS } from "@/utils/insight-display";
 
-type Campaign = {
-  id: string;
-  name: string;
-  objective: string;
-  status: string;
-  effective_status: string;
-  updated_time: string;
-};
+function statusVariant(status: string): "success" | "warning" | "muted" | "secondary" {
+  const normalized = status.toUpperCase();
+  if (normalized === "ACTIVE") return "success";
+  if (normalized.includes("PAUSED")) return "warning";
+  return "muted";
+}
 
-type AdSet = {
-  id: string;
-  campaign_id: string;
-  name: string;
-  status: string;
-  effective_status: string;
-  daily_budget?: string;
-  lifetime_budget?: string;
-};
+function dailyBudgetLabel(value?: string): string {
+  const amount = centsToCurrency(value);
+  return amount !== null ? formatCurrency(amount) : "—";
+}
 
-type Ad = {
-  id: string;
-  name: string;
-  status: string;
-  effective_status: string;
-  updated_time: string;
-  creative?: { id: string; name?: string; thumbnail_url?: string };
-};
-
-type PendingAction =
-  | { type: "campaign-name"; name: string }
-  | { type: "campaign-status"; status: "ACTIVE" | "PAUSED" }
-  | { type: "adset-name"; id: string; name: string }
-  | { type: "adset-status"; id: string; status: "ACTIVE" | "PAUSED" }
-  | { type: "adset-budget"; id: string; dailyBudget: number }
-  | { type: "ad-name"; id: string; name: string }
-  | { type: "ad-status"; id: string; status: "ACTIVE" | "PAUSED" };
-
-export default function CampaignDetailContent() {
+function CampaignDetailBody() {
   const params = useParams();
   const campaignId = params.id as string;
+  const dateFilter = useDateFilter();
+  const { isReady, accountKey, selectedAdAccountName } = useMetaAccount();
+  const {
+    campaign,
+    adsets,
+    ads,
+    selectedAdSetId,
+    setSelectedAdSetId,
+    loading,
+    adsLoading,
+    error,
+    submitting,
+    executePending,
+    reload,
+  } = useCampaignDetail(campaignId, isReady, dateFilter, accountKey);
 
-  const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const [adsets, setAdsets] = useState<AdSet[]>([]);
-  const [selectedAdSetId, setSelectedAdSetId] = useState("");
-  const [ads, setAds] = useState<Ad[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [pending, setPending] = useState<PendingAction | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
   const [campaignName, setCampaignName] = useState("");
   const [editAdSetId, setEditAdSetId] = useState<string | null>(null);
   const [adSetName, setAdSetName] = useState("");
@@ -64,516 +83,465 @@ export default function CampaignDetailContent() {
   const [editAdId, setEditAdId] = useState<string | null>(null);
   const [adName, setAdName] = useState("");
 
-  const loadCampaign = useCallback(async () => {
-    const res = await fetch("/api/meta/campaigns");
-    const data = (await res.json()) as { campaigns?: Campaign[]; error?: string };
-    if (!res.ok) throw new Error(data.error ?? "Kampanya yüklenemedi");
-    const found = data.campaigns?.find((c) => c.id === campaignId);
-    if (!found) throw new Error("Kampanya bulunamadı");
-    setCampaign(found);
-    setCampaignName(found.name);
-  }, [campaignId]);
-
-  const loadAdSets = useCallback(async () => {
-    const res = await fetch(`/api/meta/adsets?campaignId=${campaignId}`);
-    const data = (await res.json()) as { adsets?: AdSet[]; error?: string };
-    if (!res.ok) throw new Error(data.error ?? "Reklam setleri yüklenemedi");
-    setAdsets(data.adsets ?? []);
-    if (data.adsets?.length && !selectedAdSetId) {
-      setSelectedAdSetId(data.adsets[0].id);
-    }
-  }, [campaignId, selectedAdSetId]);
-
-  const loadAds = useCallback(async (adSetId: string) => {
-    if (!adSetId) return;
-    const res = await fetch(`/api/meta/ads?adSetId=${adSetId}`);
-    const data = (await res.json()) as { ads?: Ad[]; error?: string };
-    if (!res.ok) throw new Error(data.error ?? "Reklamlar yüklenemedi");
-    setAds(data.ads ?? []);
-  }, []);
-
   useEffect(() => {
-    async function init() {
-      setLoading(true);
-      setError("");
-      try {
-        await loadCampaign();
-        await loadAdSets();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Veriler yüklenemedi");
-      } finally {
-        setLoading(false);
-      }
+    if (campaign) {
+      setCampaignName(campaign.name);
     }
-    init();
-  }, [loadCampaign, loadAdSets]);
+  }, [campaign]);
 
-  useEffect(() => {
-    if (selectedAdSetId) {
-      loadAds(selectedAdSetId).catch((err) => {
-        setError(err instanceof Error ? err.message : "Reklamlar yüklenemedi");
-      });
-    }
-  }, [selectedAdSetId, loadAds]);
-
-  async function executePending() {
-    if (!pending) return;
-    setSubmitting(true);
-    setError("");
-    setMessage("");
-    try {
-      if (pending.type === "campaign-name") {
-        const res = await fetch(`/api/meta/campaigns/${campaignId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: pending.name }),
-        });
-        const data = (await res.json()) as { campaign?: Campaign; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Güncelleme başarısız");
-        setCampaign(data.campaign ?? null);
-        setCampaignName(data.campaign?.name ?? pending.name);
-      } else if (pending.type === "campaign-status") {
-        const res = await fetch(`/api/meta/campaigns/${campaignId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: pending.status }),
-        });
-        const data = (await res.json()) as { campaign?: Campaign; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Güncelleme başarısız");
-        setCampaign(data.campaign ?? null);
-      } else if (pending.type === "adset-name") {
-        const res = await fetch(`/api/meta/adsets/${pending.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: pending.name }),
-        });
-        const data = (await res.json()) as { adset?: AdSet; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Güncelleme başarısız");
-        await loadAdSets();
-        setEditAdSetId(null);
-      } else if (pending.type === "adset-status") {
-        const res = await fetch(`/api/meta/adsets/${pending.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: pending.status }),
-        });
-        const data = (await res.json()) as { adset?: AdSet; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Güncelleme başarısız");
-        await loadAdSets();
-      } else if (pending.type === "adset-budget") {
-        const res = await fetch(`/api/meta/adsets/${pending.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dailyBudget: pending.dailyBudget }),
-        });
-        const data = (await res.json()) as { adset?: AdSet; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Güncelleme başarısız");
-        await loadAdSets();
-        setEditAdSetId(null);
-      } else if (pending.type === "ad-name") {
-        const res = await fetch(`/api/meta/ads/${pending.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: pending.name }),
-        });
-        const data = (await res.json()) as { ad?: Ad; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Güncelleme başarısız");
-        await loadAds(selectedAdSetId);
-        setEditAdId(null);
-      } else if (pending.type === "ad-status") {
-        const res = await fetch(`/api/meta/ads/${pending.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: pending.status }),
-        });
-        const data = (await res.json()) as { ad?: Ad; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Güncelleme başarısız");
-        await loadAds(selectedAdSetId);
-      }
-      setMessage("Değişiklik Meta hesabına uygulandı.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Güncelleme başarısız");
-    } finally {
-      setSubmitting(false);
-      setPending(null);
-    }
-  }
-
-  function openAdSetEdit(adset: AdSet) {
+  function openAdSetEdit(adset: (typeof adsets)[number]) {
     setEditAdSetId(adset.id);
     setAdSetName(adset.name);
-    setAdSetBudget(
-      adset.daily_budget ? String(Number(adset.daily_budget) / 100) : "",
-    );
+    setAdSetBudget(adset.daily_budget ? String(Number(adset.daily_budget) / 100) : "");
   }
 
-  function openAdEdit(ad: Ad) {
+  function openAdEdit(ad: (typeof ads)[number]) {
     setEditAdId(ad.id);
     setAdName(ad.name);
   }
 
+  async function handleConfirm() {
+    if (!pending) return;
+    try {
+      await executePending(pending);
+      setEditAdSetId(null);
+      setEditAdId(null);
+    } catch {
+      // toast handled in hook
+    } finally {
+      setPending(null);
+    }
+  }
+
+  const selectedAdSet = adsets.find((item) => item.id === selectedAdSetId);
+
   return (
-    <PanelLayout title="Kampanya Detayı">
-      <div className="space-y-6">
-        <Link href="/campaigns" className="text-sm text-blue-600 hover:text-blue-800">
-          ← Kampanyalara dön
-        </Link>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Button variant="ghost" size="sm" asChild className="w-fit px-0 hover:bg-transparent">
+          <Link href="/campaigns">← Kampanyalara dön</Link>
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
+          Yenile
+        </Button>
+      </div>
 
-        {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
-        {error && (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-        )}
-        {message && (
-          <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">{message}</p>
-        )}
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+          {error}
+        </div>
+      )}
 
-        {campaign && (
-          <>
-            <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
-              <h2 className="text-base font-semibold text-gray-900">Kampanya</h2>
-              <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                <span
-                  className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${metaStatusColor(campaign.status)}`}
-                >
-                  Durum: {campaign.status}
-                </span>
-                <span
-                  className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${metaStatusColor(campaign.effective_status)}`}
-                >
-                  Gerçek Durum: {campaign.effective_status}
-                </span>
-              </div>
-              <p className="mt-2 text-sm text-gray-500">
-                Hedef: {campaign.objective} · Güncellenme: {formatMetaDate(campaign.updated_time)}
-              </p>
+      {isReady && (
+        <QuickDateFilterBar
+          value={dateFilter}
+          onChange={(value) => dateFilter.setState(value)}
+        />
+      )}
 
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="flex-1">
-                  <label htmlFor="campaignName" className="mb-1 block text-sm font-medium text-gray-700">
-                    Kampanya adı
-                  </label>
-                  <input
-                    id="campaignName"
-                    value={campaignName}
-                    onChange={(e) => setCampaignName(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={submitting || campaignName === campaign.name}
-                  onClick={() => setPending({ type: "campaign-name", name: campaignName })}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Adı Kaydet
-                </button>
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={submitting || campaign.status === "ACTIVE"}
-                  onClick={() => setPending({ type: "campaign-status", status: "ACTIVE" })}
-                  className="rounded-lg border border-green-300 px-3 py-1.5 text-sm text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Aktif Et
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting || campaign.status === "PAUSED"}
-                  onClick={() => setPending({ type: "campaign-status", status: "PAUSED" })}
-                  className="rounded-lg border border-yellow-300 px-3 py-1.5 text-sm text-yellow-700 hover:bg-yellow-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Duraklat
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
-              <h2 className="mb-3 text-base font-semibold text-gray-900">Reklam Setleri</h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Ad</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Durum</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Gerçek Durum</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">Günlük Bütçe</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-600">İşlem</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {adsets.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
-                          Reklam seti bulunamadı
-                        </td>
-                      </tr>
-                    ) : (
-                      adsets.map((adset) => (
-                        <tr
-                          key={adset.id}
-                          className={selectedAdSetId === adset.id ? "bg-blue-50" : "hover:bg-gray-50"}
-                        >
-                          <td className="px-3 py-2 font-medium text-gray-900">{adset.name}</td>
-                          <td className="px-3 py-2">
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${metaStatusColor(adset.status)}`}>
-                              {adset.status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${metaStatusColor(adset.effective_status)}`}>
-                              {adset.effective_status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-gray-600">
-                            {dailyBudgetFromMeta(adset.daily_budget)}
-                          </td>
-                          <td className="px-3 py-2">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedAdSetId(adset.id)}
-                              className="mr-2 text-blue-600 hover:text-blue-800"
-                            >
-                              Reklamlar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openAdSetEdit(adset)}
-                              className="text-gray-600 hover:text-gray-900"
-                            >
-                              Düzenle
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {editAdSetId && (
-                <div className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
-                  <h3 className="text-sm font-medium text-gray-900">Reklam Seti Düzenle</h3>
-                  <input
-                    value={adSetName}
-                    onChange={(e) => setAdSetName(e.target.value)}
-                    placeholder="Reklam seti adı"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
-                  <input
-                    type="number"
-                    value={adSetBudget}
-                    onChange={(e) => setAdSetBudget(e.target.value)}
-                    placeholder="Günlük bütçe (TL)"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      onClick={() =>
-                        setPending({ type: "adset-name", id: editAdSetId, name: adSetName })
-                      }
-                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
-                    >
-                      Adı Kaydet
-                    </button>
-                    <button
-                      type="button"
-                      disabled={submitting || !adSetBudget}
-                      onClick={() =>
-                        setPending({
-                          type: "adset-budget",
-                          id: editAdSetId,
-                          dailyBudget: Number(adSetBudget),
-                        })
-                      }
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-white disabled:opacity-60"
-                    >
-                      Bütçeyi Kaydet
-                    </button>
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      onClick={() =>
-                        setPending({ type: "adset-status", id: editAdSetId, status: "ACTIVE" })
-                      }
-                      className="rounded-lg border border-green-300 px-3 py-1.5 text-sm text-green-700 hover:bg-green-50 disabled:opacity-60"
-                    >
-                      Aktif Et
-                    </button>
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      onClick={() =>
-                        setPending({ type: "adset-status", id: editAdSetId, status: "PAUSED" })
-                      }
-                      className="rounded-lg border border-yellow-300 px-3 py-1.5 text-sm text-yellow-700 hover:bg-yellow-50 disabled:opacity-60"
-                    >
-                      Duraklat
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditAdSetId(null)}
-                      className="rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-white"
-                    >
-                      İptal
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {selectedAdSetId && (
-              <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
-                <h2 className="mb-3 text-base font-semibold text-gray-900">Reklamlar</h2>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">Ad</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">Durum</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">Gerçek Durum</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">Güncellenme</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">İşlem</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {ads.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
-                            Reklam bulunamadı
-                          </td>
-                        </tr>
-                      ) : (
-                        ads.map((ad) => (
-                          <tr key={ad.id} className="hover:bg-gray-50">
-                            <td className="px-3 py-2">
-                              <div className="flex items-center gap-2">
-                                {ad.creative?.thumbnail_url && (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={ad.creative.thumbnail_url}
-                                    alt=""
-                                    className="h-8 w-8 rounded object-cover"
-                                  />
-                                )}
-                                <span className="font-medium text-gray-900">{ad.name}</span>
-                              </div>
-                            </td>
-                            <td className="px-3 py-2">
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${metaStatusColor(ad.status)}`}>
-                                {ad.status}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2">
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${metaStatusColor(ad.effective_status)}`}>
-                                {ad.effective_status}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-gray-600">
-                              {formatMetaDate(ad.updated_time)}
-                            </td>
-                            <td className="px-3 py-2">
-                              <button
-                                type="button"
-                                onClick={() => openAdEdit(ad)}
-                                className="text-gray-600 hover:text-gray-900"
-                              >
-                                Düzenle
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {editAdId && (
-                  <div className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
-                    <h3 className="text-sm font-medium text-gray-900">Reklam Düzenle</h3>
-                    <input
-                      value={adName}
-                      onChange={(e) => setAdName(e.target.value)}
-                      placeholder="Reklam adı"
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={submitting}
-                        onClick={() =>
-                          setPending({ type: "ad-name", id: editAdId, name: adName })
-                        }
-                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
-                      >
-                        Adı Kaydet
-                      </button>
-                      <button
-                        type="button"
-                        disabled={submitting}
-                        onClick={() =>
-                          setPending({ type: "ad-status", id: editAdId, status: "ACTIVE" })
-                        }
-                        className="rounded-lg border border-green-300 px-3 py-1.5 text-sm text-green-700 hover:bg-green-50 disabled:opacity-60"
-                      >
-                        Aktif Et
-                      </button>
-                      <button
-                        type="button"
-                        disabled={submitting}
-                        onClick={() =>
-                          setPending({ type: "ad-status", id: editAdId, status: "PAUSED" })
-                        }
-                        className="rounded-lg border border-yellow-300 px-3 py-1.5 text-sm text-yellow-700 hover:bg-yellow-50 disabled:opacity-60"
-                      >
-                        Duraklat
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditAdId(null)}
-                        className="rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-white"
-                      >
-                        İptal
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {pending && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
-              <p className="text-sm text-gray-700">
-                Bu değişiklik doğrudan Meta reklam hesabına uygulanacak. Devam edilsin mi?
-              </p>
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => setPending(null)}
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                >
-                  İptal
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={executePending}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-                >
-                  {submitting ? "Uygulanıyor..." : "Devam Et"}
-                </button>
-              </div>
+      {loading ? (
+        <div className="space-y-4">
+          <Skeleton className="h-10 w-64" />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-24 w-full" />
+            ))}
+          </div>
+        </div>
+      ) : campaign ? (
+        <>
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold">{campaign.name}</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={statusVariant(campaign.status)}>{campaign.status}</Badge>
+              <Badge variant={statusVariant(campaign.effective_status)}>
+                {campaign.effective_status}
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                {campaign.objective} · Güncellenme: {formatMetaDate(campaign.updated_time)}
+              </span>
             </div>
           </div>
-        )}
-      </div>
+
+          <Tabs defaultValue="overview" className="w-full">
+            <TabsList>
+              <TabsTrigger value="overview">Genel Bakış</TabsTrigger>
+              <TabsTrigger value="adsets">Reklam Setleri</TabsTrigger>
+              <TabsTrigger value="ads">Reklamlar</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="overview" className="space-y-4">
+              <CampaignInsightsGrid insights={campaign.insights} loading={loading} />
+              <DataDateRangeCaption
+                filter={dateFilter.quickDateFilter}
+                since={dateFilter.since}
+                until={dateFilter.until}
+                accountName={selectedAdAccountName}
+              />
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Kampanya Ayarları</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="campaignName">Kampanya adı</Label>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        id="campaignName"
+                        value={campaignName || campaign.name}
+                        onChange={(event) => setCampaignName(event.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        disabled={submitting || campaignName === campaign.name}
+                        onClick={() => setPending({ type: "campaign-name", name: campaignName })}
+                      >
+                        Adı Kaydet
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={submitting || campaign.status === "ACTIVE"}
+                      onClick={() => setPending({ type: "campaign-status", status: "ACTIVE" })}
+                    >
+                      Aktif Et
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={submitting || campaign.status === "PAUSED"}
+                      onClick={() => setPending({ type: "campaign-status", status: "PAUSED" })}
+                    >
+                      Duraklat
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="adsets" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Reklam Setleri</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0 sm:p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Ad</TableHead>
+                          <TableHead>Durum</TableHead>
+                          <TableHead>Günlük Bütçe</TableHead>
+                          {INSIGHT_COLUMNS.map((column) => (
+                            <TableHead key={column.key}>{column.label}</TableHead>
+                          ))}
+                          <TableHead className="text-right">İşlem</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {adsets.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={INSIGHT_COLUMNS.length + 4} className="text-center text-muted-foreground">
+                              Reklam seti bulunamadı
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          adsets.map((adset) => (
+                            <TableRow
+                              key={adset.id}
+                              data-state={selectedAdSetId === adset.id ? "selected" : undefined}
+                            >
+                              <TableCell className="font-medium">{adset.name}</TableCell>
+                              <TableCell>
+                                <Badge variant={statusVariant(adset.status)}>{adset.status}</Badge>
+                              </TableCell>
+                              <TableCell>{dailyBudgetLabel(adset.daily_budget)}</TableCell>
+                              {INSIGHT_COLUMNS.map((column) => (
+                                <TableCell key={column.key}>
+                                  {formatInsightValue(adset.insights, column.key, column.format)}
+                                </TableCell>
+                              ))}
+                              <TableCell className="text-right">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => setSelectedAdSetId(adset.id)}>
+                                      Reklamları Göster
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => openAdSetEdit(adset)}>
+                                      Düzenle
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        setPending({ type: "adset-status", id: adset.id, status: "ACTIVE" })
+                                      }
+                                    >
+                                      Aktif Et
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        setPending({ type: "adset-status", id: adset.id, status: "PAUSED" })
+                                      }
+                                    >
+                                      Duraklat
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {editAdSetId && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Reklam Seti Düzenle</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Input
+                      value={adSetName}
+                      onChange={(event) => setAdSetName(event.target.value)}
+                      placeholder="Reklam seti adı"
+                    />
+                    <Input
+                      type="number"
+                      value={adSetBudget}
+                      onChange={(event) => setAdSetBudget(event.target.value)}
+                      placeholder="Günlük bütçe (TL)"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() =>
+                          setPending({ type: "adset-name", id: editAdSetId, name: adSetName })
+                        }
+                      >
+                        Adı Kaydet
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={submitting || !adSetBudget}
+                        onClick={() =>
+                          setPending({
+                            type: "adset-budget",
+                            id: editAdSetId,
+                            dailyBudget: Number(adSetBudget),
+                          })
+                        }
+                      >
+                        Bütçeyi Kaydet
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={() => setEditAdSetId(null)}>
+                        İptal
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="ads" className="space-y-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Label className="shrink-0">Reklam seti</Label>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm sm:max-w-xs"
+                  value={selectedAdSetId}
+                  onChange={(event) => setSelectedAdSetId(event.target.value)}
+                >
+                  {adsets.map((adset) => (
+                    <option key={adset.id} value={adset.id}>
+                      {adset.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedAdSet && (
+                <p className="text-sm text-muted-foreground">
+                  Seçili set: {selectedAdSet.name}
+                </p>
+              )}
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Reklamlar</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0 sm:p-0">
+                  {adsLoading ? (
+                    <div className="space-y-3 p-4">
+                      {Array.from({ length: 4 }).map((_, index) => (
+                        <Skeleton key={index} className="h-10 w-full" />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Ad</TableHead>
+                            <TableHead>Durum</TableHead>
+                            <TableHead>Güncellenme</TableHead>
+                            {INSIGHT_COLUMNS.map((column) => (
+                              <TableHead key={column.key}>{column.label}</TableHead>
+                            ))}
+                            <TableHead className="text-right">İşlem</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {ads.length === 0 ? (
+                            <TableRow>
+                              <TableCell
+                                colSpan={INSIGHT_COLUMNS.length + 4}
+                                className="text-center text-muted-foreground"
+                              >
+                                Reklam bulunamadı
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            ads.map((ad) => (
+                              <TableRow key={ad.id}>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    {ad.creative?.thumbnail_url && (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={ad.creative.thumbnail_url}
+                                        alt=""
+                                        className="h-8 w-8 rounded object-cover"
+                                      />
+                                    )}
+                                    <span className="font-medium">{ad.name}</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={statusVariant(ad.status)}>{ad.status}</Badge>
+                                </TableCell>
+                                <TableCell className="text-muted-foreground">
+                                  {formatMetaDate(ad.updated_time)}
+                                </TableCell>
+                                {INSIGHT_COLUMNS.map((column) => (
+                                  <TableCell key={column.key}>
+                                    {formatInsightValue(ad.insights, column.key, column.format)}
+                                  </TableCell>
+                                ))}
+                                <TableCell className="text-right">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                                        <MoreHorizontal className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem onClick={() => openAdEdit(ad)}>
+                                        Düzenle
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          setPending({ type: "ad-status", id: ad.id, status: "ACTIVE" })
+                                        }
+                                      >
+                                        Aktif Et
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          setPending({ type: "ad-status", id: ad.id, status: "PAUSED" })
+                                        }
+                                      >
+                                        Duraklat
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {editAdId && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Reklam Düzenle</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Input
+                      value={adName}
+                      onChange={(event) => setAdName(event.target.value)}
+                      placeholder="Reklam adı"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => setPending({ type: "ad-name", id: editAdId, name: adName })}
+                      >
+                        Adı Kaydet
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={() => setEditAdId(null)}>
+                        İptal
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          </Tabs>
+        </>
+      ) : (
+        !error && (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              Kampanya bulunamadı
+            </CardContent>
+          </Card>
+        )
+      )}
+
+      <Dialog open={pending !== null} onOpenChange={(open) => !open && setPending(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Değişikliği Onayla</DialogTitle>
+            <DialogDescription>
+              Bu değişiklik doğrudan Meta reklam hesabına uygulanacak. Devam edilsin mi?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={submitting} onClick={() => setPending(null)}>
+              İptal
+            </Button>
+            <Button disabled={submitting} onClick={() => void handleConfirm()}>
+              {submitting ? "Uygulanıyor..." : "Devam Et"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+export default function CampaignDetailContent() {
+  return (
+    <PanelLayout title="Kampanya Detayı">
+      <CampaignDetailBody />
     </PanelLayout>
   );
 }
