@@ -2,7 +2,6 @@
 
 import { FirmSelector } from "@/components/selectors/FirmSelector";
 import { AdAccountSelector } from "@/components/selectors/AdAccountSelector";
-import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 
 export function AccountSelectorsBar() {
@@ -14,7 +13,6 @@ export function AccountSelectorsBar() {
     adAccounts,
     selectedAdAccountId,
     selectAdAccountById,
-    addAdAccountManually,
     loading,
   } = useMetaAccount();
 
@@ -36,7 +34,6 @@ export function AccountSelectorsBar() {
         onChange={(adAccountId) => void selectAdAccountById(adAccountId)}
         loading={loading}
       />
-      <AddAdAccountForm onAdd={addAdAccountManually} disabled={loading || !activeConnectionId} />
     </div>
   );
 }

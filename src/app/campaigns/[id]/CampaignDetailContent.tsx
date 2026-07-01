@@ -42,7 +42,9 @@ import { useDateFilter } from "@/hooks/use-date-filter";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { formatMetaDate } from "@/lib/status-utils";
 import { centsToCurrency, formatCurrency } from "@/utils/format";
+import { getObjectiveLabel } from "@/utils/campaign-constants";
 import { formatInsightValue, INSIGHT_COLUMNS } from "@/utils/insight-display";
+import { formatMetaStatusLabel } from "@/utils/status-labels";
 
 function statusVariant(status: string): "success" | "warning" | "muted" | "secondary" {
   const normalized = status.toUpperCase();
@@ -153,12 +155,15 @@ function CampaignDetailBody() {
           <div className="space-y-1">
             <h2 className="text-xl font-semibold">{campaign.name}</h2>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={statusVariant(campaign.status)}>{campaign.status}</Badge>
+              <Badge variant={statusVariant(campaign.status)}>
+                {formatMetaStatusLabel(campaign.status)}
+              </Badge>
               <Badge variant={statusVariant(campaign.effective_status)}>
-                {campaign.effective_status}
+                {formatMetaStatusLabel(campaign.effective_status)}
               </Badge>
               <span className="text-sm text-muted-foreground">
-                {campaign.objective} · Güncellenme: {formatMetaDate(campaign.updated_time)}
+                {getObjectiveLabel(campaign.objective)} · Güncellenme:{" "}
+                {formatMetaDate(campaign.updated_time)}
               </span>
             </div>
           </div>
@@ -257,7 +262,9 @@ function CampaignDetailBody() {
                             >
                               <TableCell className="font-medium">{adset.name}</TableCell>
                               <TableCell>
-                                <Badge variant={statusVariant(adset.status)}>{adset.status}</Badge>
+                                <Badge variant={statusVariant(adset.status)}>
+                                  {formatMetaStatusLabel(adset.status)}
+                                </Badge>
                               </TableCell>
                               <TableCell>{dailyBudgetLabel(adset.daily_budget)}</TableCell>
                               {INSIGHT_COLUMNS.map((column) => (
@@ -429,7 +436,9 @@ function CampaignDetailBody() {
                                   </div>
                                 </TableCell>
                                 <TableCell>
-                                  <Badge variant={statusVariant(ad.status)}>{ad.status}</Badge>
+                                  <Badge variant={statusVariant(ad.status)}>
+                                    {formatMetaStatusLabel(ad.status)}
+                                  </Badge>
                                 </TableCell>
                                 <TableCell className="text-muted-foreground">
                                   {formatMetaDate(ad.updated_time)}

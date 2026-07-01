@@ -42,23 +42,11 @@ export default function LoginForm() {
     <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
       <Card className="w-full max-w-md shadow-md">
         <CardHeader className="space-y-1 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Meta Ads Panel</h1>
-          <p className="text-sm text-muted-foreground">Hesabınıza giriş yapın</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Meta Reklam Paneli</h1>
+          <p className="text-sm text-muted-foreground">Devam etmek için parolanızı girin</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label htmlFor="email" className="text-sm font-medium text-foreground">
-                E-posta
-              </label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="ornek@firma.com"
-                className="bg-background text-foreground"
-              />
-            </div>
-
             <div className="space-y-1.5">
               <label htmlFor="password" className="text-sm font-medium text-foreground">
                 Parola

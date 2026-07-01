@@ -1,4 +1,5 @@
 import type { ParsedInsights } from "@/types/meta";
+import { INSIGHT_METRIC_LABELS } from "@/utils/insight-labels";
 import {
   formatCurrency,
   formatNumber,
@@ -16,12 +17,20 @@ export function formatInsightValue(
 }
 
 export const INSIGHT_COLUMNS = [
-  { key: "spend" as const, label: "Spend", format: formatCurrency },
-  { key: "purchases" as const, label: "Purchases", format: (v: number) => formatNumber(v, 0) },
-  { key: "purchaseValue" as const, label: "Purchase Value", format: formatCurrency },
-  { key: "roas" as const, label: "ROAS", format: formatRoas },
-  { key: "ctr" as const, label: "CTR", format: formatPercent },
-  { key: "cpc" as const, label: "CPC", format: formatCurrency },
-  { key: "cpm" as const, label: "CPM", format: formatCurrency },
-  { key: "frequency" as const, label: "Frequency", format: (v: number) => formatNumber(v, 2) },
+  { key: "spend" as const, label: INSIGHT_METRIC_LABELS.spend, format: formatCurrency },
+  {
+    key: "purchases" as const,
+    label: INSIGHT_METRIC_LABELS.purchases,
+    format: (v: number) => formatNumber(v, 0),
+  },
+  { key: "purchaseValue" as const, label: INSIGHT_METRIC_LABELS.purchaseValue, format: formatCurrency },
+  { key: "roas" as const, label: INSIGHT_METRIC_LABELS.roas, format: formatRoas },
+  { key: "ctr" as const, label: INSIGHT_METRIC_LABELS.ctr, format: formatPercent },
+  { key: "cpc" as const, label: INSIGHT_METRIC_LABELS.cpc, format: formatCurrency },
+  { key: "cpm" as const, label: INSIGHT_METRIC_LABELS.cpm, format: formatCurrency },
+  {
+    key: "frequency" as const,
+    label: INSIGHT_METRIC_LABELS.frequency,
+    format: (v: number) => formatNumber(v, 2),
+  },
 ] as const;

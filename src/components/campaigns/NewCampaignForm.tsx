@@ -125,15 +125,18 @@ export function NewCampaignForm() {
       {!accountLoading && status && !status.connected && (
         <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
           Kampanya oluşturmak için önce Meta hesabını bağlayın.{" "}
-          <Link href="/settings/integrations" className="text-primary hover:underline">
-            Entegrasyonlara git
+          <Link href="/settings" className="text-primary hover:underline">
+            Ayarlara git
           </Link>
         </div>
       )}
 
       {!accountLoading && status?.connected && !isReady && (
         <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900 dark:border-yellow-900/50 dark:bg-yellow-950/30 dark:text-yellow-200">
-          Kampanya oluşturmak için üst bardan bir firma ve reklam hesabı seçin.
+          Kampanya oluşturmak için Ayarlar sayfasından reklam hesabı ekleyin ve üst bardan seçin.{" "}
+          <Link href="/settings" className="font-medium text-primary hover:underline">
+            Ayarlara git
+          </Link>
         </div>
       )}
 

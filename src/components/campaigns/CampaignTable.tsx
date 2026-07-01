@@ -7,6 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { CampaignSortField, CampaignWithInsights, SortDirection } from "@/types/meta";
 import { formatCurrency, formatNumber, formatPercent, formatRoas, centsToCurrency } from "@/utils/format";
 import { formatMetaDate } from "@/lib/status-utils";
+import { getObjectiveLabel } from "@/utils/campaign-constants";
+import { formatMetaStatusLabel } from "@/utils/status-labels";
 
 function SortIcon({
   field,
@@ -76,27 +78,27 @@ export function CampaignTable({
         <thead className="bg-muted/40">
           <tr>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Kampanya</th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Objective</th>
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Durum</th>
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Hedef</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-              {sortableHeader("Daily Budget", "budget")}
+              {sortableHeader("Günlük Bütçe", "budget")}
             </th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-              {sortableHeader("Spend", "spend")}
+              {sortableHeader("Harcama", "spend")}
             </th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-              {sortableHeader("Purchases", "purchases")}
+              {sortableHeader("Satın Alma", "purchases")}
             </th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Purchase Value</th>
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Satın Alma Değeri</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">
               {sortableHeader("ROAS", "roas")}
             </th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-              {sortableHeader("CTR", "ctr")}
+              {sortableHeader("Tıklama Oranı", "ctr")}
             </th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">CPM</th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Frequency</th>
-            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Last Updated</th>
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Gösterim B. Maliyet</th>
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Sıklık</th>
+            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Son Güncelleme</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Yönet</th>
           </tr>
         </thead>
@@ -108,16 +110,20 @@ export function CampaignTable({
               dailyBudget !== null
                 ? formatCurrency(dailyBudget)
                 : lifetimeBudget !== null
-                  ? `${formatCurrency(lifetimeBudget)} (lifetime)`
+                  ? `${formatCurrency(lifetimeBudget)} (toplam)`
                   : "—";
 
             return (
               <tr key={campaign.id} className="hover:bg-muted/30">
                 <td className="px-4 py-3 font-medium">{campaign.name}</td>
                 <td className="px-4 py-3">
-                  <Badge variant={statusVariant(campaign.status)}>{campaign.status}</Badge>
+                  <Badge variant={statusVariant(campaign.status)}>
+                    {formatMetaStatusLabel(campaign.status)}
+                  </Badge>
                 </td>
-                <td className="px-4 py-3 text-muted-foreground">{campaign.objective}</td>
+                <td className="px-4 py-3 text-muted-foreground">
+                  {getObjectiveLabel(campaign.objective)}
+                </td>
                 <td className="px-4 py-3">{budgetLabel}</td>
                 <td className="px-4 py-3">{formatCurrency(campaign.insights.spend)}</td>
                 <td className="px-4 py-3">{formatNumber(campaign.insights.purchases, 0)}</td>

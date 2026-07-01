@@ -4,7 +4,7 @@ import { AppThemeProvider } from "@/components/layout/ThemeProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Meta Ads Panel",
+  title: "Meta Reklam Paneli",
   description: "Meta reklam kampanya yönetim paneli",
 };
 

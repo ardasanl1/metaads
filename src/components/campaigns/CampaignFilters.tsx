@@ -11,7 +11,9 @@ import {
 } from "@/components/ui/select";
 import type { CampaignFilters, CampaignWithInsights, QuickDateFilter } from "@/types/meta";
 import { applyQuickDateFilter, getQuickFilterLabel } from "@/utils/date-ranges";
+import { getObjectiveLabel } from "@/utils/campaign-constants";
 import { getUniqueObjectives, getUniqueStatuses } from "@/utils/campaign-filters";
+import { formatMetaStatusLabel } from "@/utils/status-labels";
 
 const QUICK_FILTERS: QuickDateFilter[] = [
   "today",
@@ -36,7 +38,7 @@ export function CampaignFiltersBar({ filters, campaigns, onChange }: CampaignFil
     <div className="space-y-3 rounded-xl border border-border bg-card p-4">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Search</label>
+          <label className="text-xs font-medium text-muted-foreground">Ara</label>
           <Input
             placeholder="Kampanya ara..."
             value={filters.search}
@@ -44,7 +46,7 @@ export function CampaignFiltersBar({ filters, campaigns, onChange }: CampaignFil
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Status</label>
+          <label className="text-xs font-medium text-muted-foreground">Durum</label>
           <Select
             value={filters.status}
             onValueChange={(status) => onChange({ ...filters, status })}
@@ -56,14 +58,14 @@ export function CampaignFiltersBar({ filters, campaigns, onChange }: CampaignFil
               <SelectItem value="all">Tümü</SelectItem>
               {statuses.map((status) => (
                 <SelectItem key={status} value={status}>
-                  {status}
+                  {formatMetaStatusLabel(status)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Objective</label>
+          <label className="text-xs font-medium text-muted-foreground">Hedef</label>
           <Select
             value={filters.objective}
             onValueChange={(objective) => onChange({ ...filters, objective })}
@@ -75,7 +77,7 @@ export function CampaignFiltersBar({ filters, campaigns, onChange }: CampaignFil
               <SelectItem value="all">Tümü</SelectItem>
               {objectives.map((objective) => (
                 <SelectItem key={objective} value={objective}>
-                  {objective}
+                  {getObjectiveLabel(objective)}
                 </SelectItem>
               ))}
             </SelectContent>

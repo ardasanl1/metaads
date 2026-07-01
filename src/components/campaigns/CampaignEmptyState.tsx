@@ -19,7 +19,7 @@ export function CampaignEmptyState() {
           </p>
         </div>
         <Button asChild>
-          <Link href="/campaigns/new">Create Campaign</Link>
+          <Link href="/campaigns/new">Kampanya Oluştur</Link>
         </Button>
       </CardContent>
     </Card>

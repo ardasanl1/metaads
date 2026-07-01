@@ -54,10 +54,10 @@ function CampaignsBody() {
       {!accountLoading && status && !status.connected && (
         <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-950/30 sm:p-6">
           <p className="text-sm text-yellow-900 dark:text-yellow-200">
-            Gerçek kampanyaları görmek için Meta hesabını bağla.
+            Gerçek kampanyaları görmek için Meta hesabınızı bağlayın.
           </p>
           <Button asChild className="mt-3">
-            <Link href="/settings/integrations">Entegrasyonlara Git</Link>
+            <Link href="/settings">Ayarlara Git</Link>
           </Button>
         </div>
       )}
@@ -65,8 +65,11 @@ function CampaignsBody() {
       {!accountLoading && status?.connected && !isReady && (
         <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-950/30 sm:p-6">
           <p className="text-sm text-yellow-900 dark:text-yellow-200">
-            Kampanyaları görmek için bir reklam hesabı seçin.
+            Kampanyaları görmek için Ayarlar sayfasından reklam hesabı ekleyin ve seçin.
           </p>
+          <Button asChild className="mt-3" variant="outline" size="sm">
+            <Link href="/settings">Ayarlara Git</Link>
+          </Button>
         </div>
       )}
 
