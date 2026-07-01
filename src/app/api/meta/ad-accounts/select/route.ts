@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
 import { getMetaConnection, updateSelectedAdAccount } from "@/lib/db";
-import { MetaApiError, normalizeAdAccountId, verifyMetaConnection } from "@/lib/meta";
+import { MetaApiError, verifyMetaConnection } from "@/lib/meta";
 import { handleApiError, jsonError } from "@/lib/api-utils";
+import { normalizeAdAccountId } from "@/utils/ad-account";
 
 export async function POST(request: NextRequest) {
   if (!isAuthenticatedRequest(request)) {
@@ -28,21 +29,17 @@ export async function POST(request: NextRequest) {
       return jsonError("Reklam hesabı ID gerekli", 400);
     }
 
-    let accountName = adAccountName;
-    if (!accountName) {
-      const verified = await verifyMetaConnection(connection.accessToken, adAccountId);
-      accountName = verified.accountName;
-    }
+    const verified = await verifyMetaConnection(connection.accessToken, adAccountId);
 
     await updateSelectedAdAccount({
-      adAccountId,
-      adAccountName: accountName,
+      adAccountId: verified.adAccountId,
+      adAccountName: adAccountName || verified.accountName,
     });
 
     return NextResponse.json({
       ok: true,
-      selectedAdAccountId: adAccountId,
-      selectedAdAccountName: accountName,
+      selectedAdAccountId: verified.adAccountId,
+      selectedAdAccountName: adAccountName || verified.accountName,
     });
   } catch (error) {
     if (error instanceof MetaApiError) {

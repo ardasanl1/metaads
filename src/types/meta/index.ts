@@ -12,6 +12,7 @@ export type Business = {
 
 export type AdAccount = {
   id: string;
+  accountId: string;
   name: string;
   account_status?: number;
   currency?: string;

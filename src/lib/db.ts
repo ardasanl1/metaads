@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { decryptToken, encryptToken } from "./token-crypto";
+import { normalizeAdAccountId } from "@/utils/ad-account";
 
 const CONNECTION_ID = "default";
 
@@ -199,7 +200,9 @@ export async function getMetaConnection(): Promise<MetaConnection | null> {
 
   return {
     accessToken: decryptToken(stored.accessTokenEncrypted),
-    selectedAdAccountId: stored.selectedAdAccountId,
+    selectedAdAccountId: stored.selectedAdAccountId
+      ? normalizeAdAccountId(stored.selectedAdAccountId)
+      : "",
     selectedAdAccountName: stored.selectedAdAccountName,
     metaUserId: stored.metaUserId,
     createdAt: stored.createdAt,
@@ -218,7 +221,7 @@ export async function saveMetaConnection(input: {
 
   await writeStored({
     accessTokenEncrypted: encryptToken(input.accessToken),
-    selectedAdAccountId: input.adAccountId,
+    selectedAdAccountId: input.adAccountId ? normalizeAdAccountId(input.adAccountId) : "",
     selectedAdAccountName: input.adAccountName,
     metaUserId: input.metaUserId ?? null,
     createdAt: existing?.createdAt ?? now,
@@ -242,7 +245,7 @@ export async function updateSelectedAdAccount(input: {
   const now = new Date().toISOString();
   await writeStored({
     ...stored,
-    selectedAdAccountId: input.adAccountId,
+    selectedAdAccountId: normalizeAdAccountId(input.adAccountId),
     selectedAdAccountName: input.adAccountName,
     updatedAt: now,
   });

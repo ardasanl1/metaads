@@ -18,6 +18,11 @@ import {
   selectAdAccount,
 } from "@/services/meta/client";
 import { LOCAL_STORAGE_KEYS } from "@/utils/meta-constants";
+import {
+  adAccountIdsMatch,
+  findAdAccountById,
+  normalizeAdAccountId,
+} from "@/utils/ad-account";
 
 type MetaAccountContextValue = {
   status: MetaConnectionStatus | null;
@@ -67,26 +72,23 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
       const storedAccountId = readStorage(LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID);
       const serverAccountId = preferredAccountId ?? null;
 
-      const candidateId =
-        storedAccountId && accounts.some((account) => account.id === storedAccountId)
-          ? storedAccountId
-          : serverAccountId && accounts.some((account) => account.id === serverAccountId)
-            ? serverAccountId
-            : accounts[0]?.id ?? null;
+      const storedMatch = storedAccountId ? findAdAccountById(accounts, storedAccountId) : undefined;
+      const serverMatch = serverAccountId ? findAdAccountById(accounts, serverAccountId) : undefined;
 
-      if (!candidateId) {
+      const candidate = storedMatch ?? serverMatch ?? accounts[0] ?? null;
+
+      if (!candidate) {
         setSelectedAdAccountId(null);
         setSelectedAdAccountName(null);
         return;
       }
 
-      const account = accounts.find((item) => item.id === candidateId);
-      setSelectedAdAccountId(candidateId);
-      setSelectedAdAccountName(account?.name ?? null);
-      writeStorage(LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID, candidateId);
+      setSelectedAdAccountId(candidate.id);
+      setSelectedAdAccountName(candidate.name);
+      writeStorage(LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID, candidate.id);
 
-      if (candidateId !== serverAccountId) {
-        await selectAdAccount(candidateId, account?.name ?? "");
+      if (!serverAccountId || !adAccountIdsMatch(candidate.id, serverAccountId)) {
+        await selectAdAccount(candidate.id, candidate.name);
       }
     },
     [],
@@ -157,7 +159,7 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
 
   const selectAdAccountById = useCallback(
     async (adAccountId: string) => {
-      const account = adAccounts.find((item) => item.id === adAccountId);
+      const account = findAdAccountById(adAccounts, adAccountId);
       if (!account) return;
 
       setLoading(true);
@@ -193,23 +195,28 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const result = await selectAdAccount(rawAdAccountId, "");
-      setSelectedAdAccountId(result.selectedAdAccountId);
+      const normalizedId = normalizeAdAccountId(result.selectedAdAccountId);
+      setSelectedAdAccountId(normalizedId);
       setSelectedAdAccountName(result.selectedAdAccountName);
-      writeStorage(LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID, result.selectedAdAccountId);
+      writeStorage(LOCAL_STORAGE_KEYS.SELECTED_AD_ACCOUNT_ID, normalizedId);
       setAdAccounts((current) => {
-        if (current.some((account) => account.id === result.selectedAdAccountId)) {
+        if (current.some((account) => adAccountIdsMatch(account.id, normalizedId))) {
           return current;
         }
         return [
           ...current,
-          { id: result.selectedAdAccountId, name: result.selectedAdAccountName },
+          {
+            id: normalizedId,
+            accountId: normalizedId.replace(/^act_/, ""),
+            name: result.selectedAdAccountName,
+          },
         ];
       });
       setStatus((current) =>
         current
           ? {
               ...current,
-              selectedAdAccountId: result.selectedAdAccountId,
+              selectedAdAccountId: normalizedId,
               selectedAdAccountName: result.selectedAdAccountName,
             }
           : current,

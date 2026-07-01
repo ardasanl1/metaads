@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       const verified = await verifyMetaConnection(accessToken, normalizedAccountId);
       await saveMetaConnection({
         accessToken,
-        adAccountId: normalizedAccountId,
+        adAccountId: verified.adAccountId,
         adAccountName: verified.accountName,
         metaUserId: verified.metaUserId,
       });
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         ok: true,
         connected: true,
-        selectedAdAccountId: normalizedAccountId,
+        selectedAdAccountId: verified.adAccountId,
         selectedAdAccountName: verified.accountName,
         metaUserId: verified.metaUserId,
       });

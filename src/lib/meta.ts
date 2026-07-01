@@ -1,5 +1,13 @@
 import "server-only";
 import { getMetaConnection } from "./db";
+import {
+  normalizeAdAccountId,
+  normalizeAdAccountList,
+  normalizeAdAccountRecord,
+  type AdAccountRaw,
+} from "@/utils/ad-account";
+
+export { normalizeAdAccountId };
 
 export class MetaApiError extends Error {
   status: number;
@@ -17,12 +25,6 @@ export function getApiVersion(): string {
 
 function graphBaseUrl(): string {
   return `https://graph.facebook.com/${getApiVersion()}`;
-}
-
-export function normalizeAdAccountId(accountId: string): string {
-  const trimmed = accountId.trim();
-  if (!trimmed) return "";
-  return trimmed.startsWith("act_") ? trimmed : `act_${trimmed}`;
 }
 
 async function parseMetaResponse<T>(response: Response): Promise<T> {
@@ -77,16 +79,16 @@ export async function metaRequest<T = unknown>(
 export async function verifyMetaConnection(
   accessToken: string,
   adAccountId: string,
-): Promise<{ accountName: string; metaUserId: string | null }> {
+): Promise<{ accountName: string; adAccountId: string; metaUserId: string | null }> {
   const accountPath = normalizeAdAccountId(adAccountId);
   if (!accountPath) {
     throw new MetaApiError("Reklam hesabi ID gerekli", 400);
   }
 
-  const account = await metaRequest<{ id: string; name: string }>(
-    `${accountPath}?fields=id,name`,
-    { token: accessToken },
-  );
+  const account = await metaRequest<AdAccountRaw>(`${accountPath}?fields=id,account_id,name`, {
+    token: accessToken,
+  });
+  const normalized = normalizeAdAccountRecord(account);
 
   let metaUserId: string | null = null;
   try {
@@ -97,7 +99,8 @@ export async function verifyMetaConnection(
   }
 
   return {
-    accountName: account.name,
+    accountName: normalized.name,
+    adAccountId: normalized.id,
     metaUserId,
   };
 }
@@ -133,6 +136,7 @@ export type Business = {
 
 export type AdAccount = {
   id: string;
+  accountId: string;
   name: string;
   account_status?: number;
   currency?: string;
@@ -192,22 +196,21 @@ export async function getBusinesses(): Promise<Business[]> {
 }
 
 export async function getAdAccountsForBusiness(businessId: string): Promise<AdAccount[]> {
-  const owned = await fetchPaged<AdAccount>(
-    `${businessId}/owned_ad_accounts?fields=id,name,account_status,currency&limit=100`,
+  const owned = await fetchPaged<AdAccountRaw>(
+    `${businessId}/owned_ad_accounts?fields=id,account_id,name,account_status,currency&limit=100`,
   );
-  const client = await fetchPaged<AdAccount>(
-    `${businessId}/client_ad_accounts?fields=id,name,account_status,currency&limit=100`,
+  const client = await fetchPaged<AdAccountRaw>(
+    `${businessId}/client_ad_accounts?fields=id,account_id,name,account_status,currency&limit=100`,
   );
 
-  const byId = new Map<string, AdAccount>();
-  for (const account of [...owned, ...client]) {
-    byId.set(account.id, account);
-  }
-  return Array.from(byId.values());
+  return normalizeAdAccountList([...owned, ...client]);
 }
 
 export async function getUserAdAccounts(): Promise<AdAccount[]> {
-  return fetchPaged<AdAccount>("me/adaccounts?fields=id,name,account_status,currency&limit=100");
+  const accounts = await fetchPaged<AdAccountRaw>(
+    "me/adaccounts?fields=id,account_id,name,account_status,currency&limit=100",
+  );
+  return normalizeAdAccountList(accounts);
 }
 
 export async function getAccountInsights(
