@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setSessionCookie, verifyCredentials } from "@/lib/auth";
+import { setSessionCookie } from "@/lib/auth";
+import { authenticatePanelUser } from "@/lib/user-db";
 import { jsonError } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
@@ -11,12 +12,12 @@ export async function POST(request: NextRequest) {
     if (!body.password || typeof body.password !== "string") {
       return jsonError("Şifre gerekli", 400);
     }
-    if (!process.env.APP_EMAIL || !process.env.APP_PASSWORD) {
-      return jsonError("Sunucu yapılandırması eksik", 500);
-    }
-    if (!verifyCredentials(body.email, body.password)) {
+
+    const user = await authenticatePanelUser(body.email, body.password);
+    if (!user) {
       return jsonError("Geçersiz e-posta veya şifre", 401);
     }
+
     const response = NextResponse.json({ ok: true });
     setSessionCookie(response);
     return response;

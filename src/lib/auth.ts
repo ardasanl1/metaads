@@ -58,6 +58,7 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(left, right);
 }
 
+/** @deprecated Panel kullanicilari artik veritabaninda tutulur. */
 export function verifyCredentials(email: string, password: string): boolean {
   const appEmail = process.env.APP_EMAIL;
   const appPassword = process.env.APP_PASSWORD;

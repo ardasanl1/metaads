@@ -13,8 +13,8 @@ cp .env.example .env.local
 
 | Değişken | Açıklama |
 |---|---|
-| `APP_EMAIL` | Panel giriş e-postası |
-| `APP_PASSWORD` | Panel giriş şifresi |
+| `APP_EMAIL` | Panel giriş e-postası (ilk kullanıcı seed için) |
+| `APP_PASSWORD` | Panel giriş şifresi (ilk kullanıcı seed için) |
 | `SESSION_SECRET` | Oturum ve token şifreleme (AES-256-GCM) |
 
 ```bash
@@ -49,10 +49,10 @@ Tüm reklam hesapları otomatik çekilmez; yalnızca eklediğiniz ID'ler listele
 
 | Ortam | Nerede |
 |---|---|
-| Vercel + Neon | `meta_connections` tablosu (Postgres) |
-| Yerel (Neon yok) | `.data/meta-connections.json` |
+| Vercel + Neon | `meta_connections` ve `panel_users` tabloları (aynı Postgres) |
+| Yerel (Neon yok) | `.data/meta-connections.json`, `.data/panel-users.json` |
 
-Access token'lar `SESSION_SECRET` ile şifreli saklanır.
+Access token'lar `SESSION_SECRET` ile şifreli saklanır. Panel şifreleri veritabanında hash'lenmiş tutulur; `APP_EMAIL` / `APP_PASSWORD` yalnızca ilk kullanıcıyı otomatik oluşturmak için kullanılır.
 
 ## Vercel + Neon
 
@@ -80,8 +80,8 @@ Tarih parametreleri: `datePreset`, `since`, `until`
 
 | Değişken | Zorunlu | Açıklama |
 |---|---|---|
-| `APP_EMAIL` | Evet | Panel giriş e-postası |
-| `APP_PASSWORD` | Evet | Panel giriş şifresi |
+| `APP_EMAIL` | Evet | İlk panel kullanıcısı seed (ör. test@test.com) |
+| `APP_PASSWORD` | Evet | İlk panel kullanıcısı seed şifresi |
 | `SESSION_SECRET` | Evet | Oturum ve token şifreleme |
 | `META_API_VERSION` | Hayır | Varsayılan `v23.0` |
 | `POSTGRES_URL` / `DATABASE_URL` | Vercel'de | Neon Postgres bağlantısı |
