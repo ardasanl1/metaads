@@ -229,3 +229,21 @@ export async function saveMetaConnection(input: {
 export async function deleteMetaConnection(): Promise<void> {
   await removeStored();
 }
+
+export async function updateSelectedAdAccount(input: {
+  adAccountId: string;
+  adAccountName: string;
+}): Promise<void> {
+  const stored = await readStored();
+  if (!stored) {
+    throw new Error("Meta baglantisi bulunamadi");
+  }
+
+  const now = new Date().toISOString();
+  await writeStored({
+    ...stored,
+    selectedAdAccountId: input.adAccountId,
+    selectedAdAccountName: input.adAccountName,
+    updatedAt: now,
+  });
+}

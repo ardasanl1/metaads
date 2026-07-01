@@ -110,11 +110,123 @@ export type Campaign = {
   effective_status: string;
   created_time: string;
   updated_time: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
+  insights?: { data?: MetaInsightRaw[] };
 };
 
-export async function getCampaigns(adAccountId: string): Promise<Campaign[]> {
+export type Business = {
+  id: string;
+  name: string;
+};
+
+export type AdAccount = {
+  id: string;
+  name: string;
+  account_status?: number;
+  currency?: string;
+};
+
+export type MetaAction = {
+  action_type: string;
+  value: string;
+};
+
+export type MetaInsightRaw = {
+  spend?: string;
+  impressions?: string;
+  reach?: string;
+  clicks?: string;
+  cpc?: string;
+  cpm?: string;
+  ctr?: string;
+  frequency?: string;
+  actions?: MetaAction[];
+  action_values?: MetaAction[];
+  purchase_roas?: MetaAction[];
+  date_start?: string;
+  date_stop?: string;
+};
+
+export type InsightsQuery = {
+  datePreset?: string;
+  since?: string;
+  until?: string;
+};
+
+const INSIGHT_FIELDS =
+  "spend,impressions,reach,clicks,cpc,cpm,ctr,frequency,actions,action_values,purchase_roas";
+
+function buildInsightsParam(query?: InsightsQuery): string {
+  if (!query) return "";
+
+  if (query.datePreset) {
+    return `insights.date_preset(${query.datePreset}){${INSIGHT_FIELDS}}`;
+  }
+
+  if (query.since && query.until) {
+    const timeRange = JSON.stringify({ since: query.since, until: query.until });
+    return `insights.time_range(${timeRange}){${INSIGHT_FIELDS}}`;
+  }
+
+  return `insights.date_preset(last_7d){${INSIGHT_FIELDS}}`;
+}
+
+export async function getBusinesses(): Promise<Business[]> {
+  try {
+    return await fetchPaged<Business>("me/businesses?fields=id,name&limit=100");
+  } catch {
+    return [];
+  }
+}
+
+export async function getAdAccountsForBusiness(businessId: string): Promise<AdAccount[]> {
+  const owned = await fetchPaged<AdAccount>(
+    `${businessId}/owned_ad_accounts?fields=id,name,account_status,currency&limit=100`,
+  );
+  const client = await fetchPaged<AdAccount>(
+    `${businessId}/client_ad_accounts?fields=id,name,account_status,currency&limit=100`,
+  );
+
+  const byId = new Map<string, AdAccount>();
+  for (const account of [...owned, ...client]) {
+    byId.set(account.id, account);
+  }
+  return Array.from(byId.values());
+}
+
+export async function getUserAdAccounts(): Promise<AdAccount[]> {
+  return fetchPaged<AdAccount>("me/adaccounts?fields=id,name,account_status,currency&limit=100");
+}
+
+export async function getAccountInsights(
+  adAccountId: string,
+  query?: InsightsQuery,
+): Promise<MetaInsightRaw | null> {
   const accountPath = normalizeAdAccountId(adAccountId);
-  const fields = "id,name,objective,status,effective_status,created_time,updated_time";
+  let path = `${accountPath}/insights?fields=${INSIGHT_FIELDS}`;
+
+  if (query?.datePreset) {
+    path += `&date_preset=${query.datePreset}`;
+  } else if (query?.since && query?.until) {
+    path += `&time_range=${encodeURIComponent(JSON.stringify({ since: query.since, until: query.until }))}`;
+  } else {
+    path += "&date_preset=last_7d";
+  }
+
+  const result = await metaRequest<{ data?: MetaInsightRaw[] }>(path);
+  return result.data?.[0] ?? null;
+}
+
+export async function getCampaigns(
+  adAccountId: string,
+  query?: InsightsQuery,
+): Promise<Campaign[]> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  const baseFields =
+    "id,name,objective,status,effective_status,created_time,updated_time,daily_budget,lifetime_budget";
+  const insightsParam = buildInsightsParam(query);
+  const fields = insightsParam ? `${baseFields},${insightsParam}` : baseFields;
   return fetchPaged<Campaign>(`${accountPath}/campaigns?fields=${fields}&limit=100`);
 }
 

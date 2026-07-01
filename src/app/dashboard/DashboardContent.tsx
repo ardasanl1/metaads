@@ -1,173 +1,76 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import PanelLayout from "@/components/PanelLayout";
-import { formatMetaDate, metaStatusColor } from "@/lib/status-utils";
+import { DashboardStats } from "@/components/dashboard/DashboardStats";
+import { CampaignTable } from "@/components/campaigns/CampaignTable";
+import { Button } from "@/components/ui/button";
+import { useMetaAccount } from "@/hooks/use-meta-account";
+import { useCampaigns } from "@/hooks/use-campaigns";
 
-const EMPTY = "—";
-
-type MetaStatus = {
-  connected: boolean;
-  selectedAdAccountId: string | null;
-};
-
-type Campaign = {
-  id: string;
-  name: string;
-  objective: string;
-  status: string;
-  effective_status: string;
-  updated_time: string;
-};
-
-export default function DashboardContent() {
-  const [loading, setLoading] = useState(true);
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [canFetchCampaigns, setCanFetchCampaigns] = useState(false);
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const statusRes = await fetch("/api/meta/status");
-        const statusData = (await statusRes.json()) as MetaStatus;
-
-        const ready =
-          statusData.connected && Boolean(statusData.selectedAdAccountId);
-        setCanFetchCampaigns(ready);
-
-        if (!ready) {
-          setCampaigns([]);
-          return;
-        }
-
-        const campaignsRes = await fetch("/api/meta/campaigns");
-        const campaignsData = (await campaignsRes.json()) as {
-          campaigns?: Campaign[];
-        };
-        if (campaignsRes.ok) {
-          setCampaigns(campaignsData.campaigns ?? []);
-        } else {
-          setCampaigns([]);
-        }
-      } catch {
-        setCampaigns([]);
-        setCanFetchCampaigns(false);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, []);
-
-  const activeCount = canFetchCampaigns
-    ? campaigns.filter((c) => c.status === "ACTIVE").length
-    : null;
-
-  const stats = [
-    {
-      label: "Toplam Kampanya",
-      value:
-        loading ? "…" : canFetchCampaigns ? String(campaigns.length) : EMPTY,
-    },
-    {
-      label: "Aktif Kampanya",
-      value:
-        loading
-          ? "…"
-          : canFetchCampaigns && activeCount !== null
-            ? String(activeCount)
-            : EMPTY,
-    },
-    { label: "Günlük Bütçe", value: EMPTY },
-    { label: "Toplam Lead", value: EMPTY },
-  ];
+function DashboardBody() {
+  const { isReady, status, accountKey, error, retry, loading: accountLoading } = useMetaAccount();
+  const {
+    campaigns,
+    loading: campaignsLoading,
+    error: campaignsError,
+    reload,
+    sortField,
+    sortDirection,
+    toggleSort,
+  } = useCampaigns(accountKey, isReady);
 
   const recentCampaigns = campaigns.slice(0, 5);
+  const displayError = error ?? campaignsError;
+  const loading = accountLoading || campaignsLoading;
 
   return (
-    <PanelLayout title="Genel Bakış">
-      <div className="space-y-6">
-        {!loading && !canFetchCampaigns && (
-          <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-600">
-            Özet verileri görmek için Meta hesabını bağlayın ve bir reklam hesabı seçin.{" "}
-            <Link href="/settings/integrations" className="text-blue-600 hover:text-blue-800">
-              Entegrasyonlara git
-            </Link>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5"
-            >
-              <p className="text-sm text-gray-500">{stat.label}</p>
-              <p className="mt-1 text-2xl font-semibold text-gray-900">{stat.value}</p>
-            </div>
-          ))}
+    <div className="space-y-6">
+      {!accountLoading && status && !status.connected && (
+        <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+          Özet verileri görmek için Meta hesabını bağlayın.{" "}
+          <Link href="/settings/integrations" className="text-primary hover:underline">
+            Entegrasyonlara git
+          </Link>
         </div>
+      )}
 
-        <div>
-          <h2 className="mb-3 text-base font-semibold text-gray-900">Son Kampanyalar</h2>
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Kampanya</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Hedef</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Durum</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Gerçek Durum</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Güncellenme</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {loading ? (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
-                      Yükleniyor…
-                    </td>
-                  </tr>
-                ) : recentCampaigns.length === 0 ? (
-                  <tr>
-                    <td className="px-4 py-3 text-gray-400">{EMPTY}</td>
-                    <td className="px-4 py-3 text-gray-400">{EMPTY}</td>
-                    <td className="px-4 py-3 text-gray-400">{EMPTY}</td>
-                    <td className="px-4 py-3 text-gray-400">{EMPTY}</td>
-                    <td className="px-4 py-3 text-gray-400">{EMPTY}</td>
-                  </tr>
-                ) : (
-                  recentCampaigns.map((campaign) => (
-                    <tr key={campaign.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-900">{campaign.name}</td>
-                      <td className="px-4 py-3 text-gray-600">{campaign.objective}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${metaStatusColor(campaign.status)}`}
-                        >
-                          {campaign.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${metaStatusColor(campaign.effective_status)}`}
-                        >
-                          {campaign.effective_status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">
-                        {formatMetaDate(campaign.updated_time)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+      {displayError && (
+        <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-destructive">{displayError}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              retry();
+              void reload();
+            }}
+          >
+            Tekrar Dene
+          </Button>
         </div>
+      )}
+
+      <DashboardStats quickFilter="last_7_days" />
+
+      <div>
+        <h2 className="mb-3 text-base font-semibold">Son Kampanyalar</h2>
+        <CampaignTable
+          campaigns={recentCampaigns}
+          loading={loading || !isReady}
+          sortField={sortField}
+          sortDirection={sortDirection}
+          onSort={toggleSort}
+        />
       </div>
+    </div>
+  );
+}
+
+export default function DashboardContent() {
+  return (
+    <PanelLayout title="Genel Bakış">
+      <DashboardBody />
     </PanelLayout>
   );
 }

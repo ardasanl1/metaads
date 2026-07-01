@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
 import { getMetaConnection } from "@/lib/db";
-import { getCampaigns } from "@/lib/meta";
+import { getAccountInsights } from "@/lib/meta";
 import { handleApiError, jsonError } from "@/lib/api-utils";
 import { parseMetaInsights } from "@/utils/insights";
-import type { CampaignWithInsights } from "@/types/meta";
 
 function getInsightsQuery(request: NextRequest) {
   const datePreset = request.nextUrl.searchParams.get("datePreset") ?? undefined;
@@ -24,25 +23,8 @@ export async function GET(request: NextRequest) {
       return jsonError("Reklam hesabı seçilmedi", 400);
     }
 
-    const rawCampaigns = await getCampaigns(
-      connection.selectedAdAccountId,
-      getInsightsQuery(request),
-    );
-
-    const campaigns: CampaignWithInsights[] = rawCampaigns.map((campaign) => ({
-      id: campaign.id,
-      name: campaign.name,
-      objective: campaign.objective,
-      status: campaign.status,
-      effective_status: campaign.effective_status,
-      created_time: campaign.created_time,
-      updated_time: campaign.updated_time,
-      daily_budget: campaign.daily_budget,
-      lifetime_budget: campaign.lifetime_budget,
-      insights: parseMetaInsights(campaign.insights?.data?.[0]),
-    }));
-
-    return NextResponse.json({ campaigns });
+    const raw = await getAccountInsights(connection.selectedAdAccountId, getInsightsQuery(request));
+    return NextResponse.json({ insights: parseMetaInsights(raw) });
   } catch (error) {
     return handleApiError(error);
   }
