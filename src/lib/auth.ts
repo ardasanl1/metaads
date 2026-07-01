@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
+export { verifyCredentials } from "./credentials";
+
 export const SESSION_COOKIE = "panel_session";
 
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
@@ -56,19 +58,6 @@ function safeCompare(a: string, b: string): boolean {
   const right = Buffer.from(b);
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
-}
-
-/** @deprecated Panel kullanicilari artik veritabaninda tutulur. */
-export function verifyCredentials(email: string, password: string): boolean {
-  const appEmail = process.env.APP_EMAIL;
-  const appPassword = process.env.APP_PASSWORD;
-  if (!appEmail || !appPassword) return false;
-
-  const normalizedEmail = email.trim().toLowerCase();
-  const expectedEmail = appEmail.trim().toLowerCase();
-  if (!safeCompare(normalizedEmail, expectedEmail)) return false;
-
-  return safeCompare(password, appPassword);
 }
 
 export async function isAuthenticated(): Promise<boolean> {

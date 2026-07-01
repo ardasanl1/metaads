@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hashPassword, verifyPasswordHash } from "./password";
-import { verifyCredentials } from "./auth";
+import { verifyCredentials } from "./credentials";
 
 export type PanelUser = {
   id: string;
@@ -160,28 +160,32 @@ async function insertUser(user: StoredUser): Promise<void> {
 
 export async function ensureDefaultPanelUser(): Promise<void> {
   const email = process.env.APP_EMAIL?.trim();
-  const password = process.env.APP_PASSWORD;
+  const password = process.env.APP_PASSWORD?.trim();
   if (!email || !password) return;
 
-  const normalizedEmail = normalizeEmail(email);
-  const users = await readAllUsers();
-  const existing = users.find((item) => item.email === normalizedEmail);
+  try {
+    const normalizedEmail = normalizeEmail(email);
+    const users = await readAllUsers();
+    const existing = users.find((item) => item.email === normalizedEmail);
 
-  if (existing) {
-    if (!verifyPasswordHash(password, existing.passwordHash)) {
-      await updateUserPassword(existing.id, password);
+    if (existing) {
+      if (!verifyPasswordHash(password, existing.passwordHash)) {
+        await updateUserPassword(existing.id, password);
+      }
+      return;
     }
-    return;
-  }
 
-  const now = new Date().toISOString();
-  await insertUser({
-    id: randomUUID(),
-    email: normalizedEmail,
-    passwordHash: hashPassword(password),
-    createdAt: now,
-    updatedAt: now,
-  });
+    const now = new Date().toISOString();
+    await insertUser({
+      id: randomUUID(),
+      email: normalizedEmail,
+      passwordHash: hashPassword(password),
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (error) {
+    console.error("ensureDefaultPanelUser failed:", error);
+  }
 }
 
 async function updateUserPassword(userId: string, password: string): Promise<void> {
@@ -233,22 +237,15 @@ export async function authenticatePanelUser(
   email: string,
   password: string,
 ): Promise<PanelUser | null> {
-  await ensureDefaultPanelUser();
-
   const normalizedEmail = normalizeEmail(email);
-  const users = await readAllUsers();
-  const user = users.find((item) => item.email === normalizedEmail);
-
-  if (user && verifyPasswordHash(password, user.passwordHash)) {
-    return toPanelUser(user);
-  }
 
   if (verifyCredentials(email, password)) {
-    await syncEnvUserToDatabase(normalizedEmail, password);
-    const synced = (await readAllUsers()).find((item) => item.email === normalizedEmail);
-    if (synced) {
-      return toPanelUser(synced);
+    try {
+      await syncEnvUserToDatabase(normalizedEmail, password);
+    } catch (error) {
+      console.error("panel_users sync failed:", error);
     }
+
     const now = new Date().toISOString();
     return {
       id: "env",
@@ -256,6 +253,18 @@ export async function authenticatePanelUser(
       createdAt: now,
       updatedAt: now,
     };
+  }
+
+  try {
+    await ensureDefaultPanelUser();
+    const users = await readAllUsers();
+    const user = users.find((item) => item.email === normalizedEmail);
+
+    if (user && verifyPasswordHash(password, user.passwordHash)) {
+      return toPanelUser(user);
+    }
+  } catch (error) {
+    console.error("panel_users auth failed:", error);
   }
 
   return null;
