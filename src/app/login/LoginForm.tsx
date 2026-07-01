@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,7 +22,7 @@ export default function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email, password }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) {
@@ -43,13 +44,29 @@ export default function LoginForm() {
       <Card className="w-full max-w-md shadow-md">
         <CardHeader className="space-y-1 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">Meta Reklam Paneli</h1>
-          <p className="text-sm text-muted-foreground">Devam etmek için parolanızı girin</p>
+          <p className="text-sm text-muted-foreground">Devam etmek için e-posta ve şifrenizi girin</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
+              <label htmlFor="email" className="text-sm font-medium text-foreground">
+                E-posta
+              </label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="ornek@firma.com"
+                autoComplete="email"
+                required
+                className="bg-background text-foreground"
+              />
+            </div>
+
+            <div className="space-y-1.5">
               <label htmlFor="password" className="text-sm font-medium text-foreground">
-                Parola
+                Şifre
               </label>
               <Input
                 id="password"
@@ -57,6 +74,7 @@ export default function LoginForm() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
+                autoComplete="current-password"
                 required
                 className="bg-background text-foreground"
               />

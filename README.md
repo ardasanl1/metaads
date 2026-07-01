@@ -13,7 +13,8 @@ cp .env.example .env.local
 
 | Değişken | Açıklama |
 |---|---|
-| `APP_PASSWORD` | Panel giriş parolası |
+| `APP_EMAIL` | Panel giriş e-postası |
+| `APP_PASSWORD` | Panel giriş şifresi |
 | `SESSION_SECRET` | Oturum ve token şifreleme (AES-256-GCM) |
 
 ```bash
@@ -57,7 +58,7 @@ Access token'lar `SESSION_SECRET` ile şifreli saklanır.
 
 1. Vercel → **Storage** → **Neon** → **Create** → projeye **Connect**
 2. `POSTGRES_URL` otomatik eklenir
-3. `APP_PASSWORD` ve `SESSION_SECRET` tanımlı olsun
+3. `APP_EMAIL`, `APP_PASSWORD` ve `SESSION_SECRET` tanımlı olsun
 4. **Redeploy**
 
 Tablo ilk bağlantıda otomatik oluşturulur.
@@ -79,7 +80,8 @@ Tarih parametreleri: `datePreset`, `since`, `until`
 
 | Değişken | Zorunlu | Açıklama |
 |---|---|---|
-| `APP_PASSWORD` | Evet | Panel giriş parolası |
+| `APP_EMAIL` | Evet | Panel giriş e-postası |
+| `APP_PASSWORD` | Evet | Panel giriş şifresi |
 | `SESSION_SECRET` | Evet | Oturum ve token şifreleme |
 | `META_API_VERSION` | Hayır | Varsayılan `v23.0` |
 | `POSTGRES_URL` / `DATABASE_URL` | Vercel'de | Neon Postgres bağlantısı |

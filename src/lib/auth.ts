@@ -48,10 +48,26 @@ export function verifySessionToken(token: string | undefined): boolean {
 export function verifyPassword(password: string): boolean {
   const appPassword = process.env.APP_PASSWORD;
   if (!appPassword) return false;
-  const a = Buffer.from(password);
-  const b = Buffer.from(appPassword);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+  return safeCompare(password, appPassword);
+}
+
+function safeCompare(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
+export function verifyCredentials(email: string, password: string): boolean {
+  const appEmail = process.env.APP_EMAIL;
+  const appPassword = process.env.APP_PASSWORD;
+  if (!appEmail || !appPassword) return false;
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const expectedEmail = appEmail.trim().toLowerCase();
+  if (!safeCompare(normalizedEmail, expectedEmail)) return false;
+
+  return safeCompare(password, appPassword);
 }
 
 export async function isAuthenticated(): Promise<boolean> {
