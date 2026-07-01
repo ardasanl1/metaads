@@ -1,9 +1,9 @@
+import { neon } from "@neondatabase/serverless";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
-import { del, list, put } from "@vercel/blob";
 import { decryptToken, encryptToken } from "./token-crypto";
 
-const BLOB_PATHNAME = "meta-connection.txt";
+const CONNECTION_ID = "default";
 
 type StoredConnection = {
   accessTokenEncrypted: string;
@@ -23,18 +23,55 @@ export type MetaConnection = {
   updatedAt: string;
 };
 
-type StorageMode = "blob" | "file";
+type MetaConnectionRow = {
+  id: string;
+  access_token_encrypted: string;
+  meta_user_id: string | null;
+  selected_ad_account_id: string;
+  selected_ad_account_name: string;
+  created_at: string;
+  updated_at: string;
+};
 
-function getStorageMode(): StorageMode {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    return "blob";
+let tableReady = false;
+
+function getDatabaseUrl(): string | null {
+  return (
+    process.env.POSTGRES_URL ??
+    process.env.DATABASE_URL ??
+    process.env.POSTGRES_PRISMA_URL ??
+    null
+  );
+}
+
+function hasPostgres(): boolean {
+  return Boolean(getDatabaseUrl());
+}
+
+function getSql() {
+  const url = getDatabaseUrl();
+  if (!url) {
+    throw new Error("POSTGRES_URL veya DATABASE_URL tanimli degil");
   }
-  if (process.env.VERCEL === "1") {
-    throw new Error(
-      "Vercel ortaminda Blob Store gerekli. Storage → Blob olusturup BLOB_READ_WRITE_TOKEN ekleyin.",
-    );
-  }
-  return "file";
+  return neon(url);
+}
+
+async function ensureTable(): Promise<void> {
+  if (!hasPostgres() || tableReady) return;
+
+  const sql = getSql();
+  await sql`
+    CREATE TABLE IF NOT EXISTS meta_connections (
+      id TEXT PRIMARY KEY,
+      access_token_encrypted TEXT NOT NULL,
+      meta_user_id TEXT,
+      selected_ad_account_id TEXT NOT NULL,
+      selected_ad_account_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `;
+  tableReady = true;
 }
 
 function getLocalFilePath(): string {
@@ -45,21 +82,7 @@ function getLocalFilePath(): string {
   return join(dataDir, "meta-connection.txt");
 }
 
-async function readStored(): Promise<StoredConnection | null> {
-  const mode = getStorageMode();
-
-  if (mode === "blob") {
-    try {
-      const { blobs } = await list({ prefix: BLOB_PATHNAME, limit: 1 });
-      if (blobs.length === 0) return null;
-      const response = await fetch(blobs[0].url);
-      if (!response.ok) return null;
-      return (await response.json()) as StoredConnection;
-    } catch {
-      return null;
-    }
-  }
-
+async function readFromFile(): Promise<StoredConnection | null> {
   const filePath = getLocalFilePath();
   if (!existsSync(filePath)) return null;
   try {
@@ -69,45 +92,105 @@ async function readStored(): Promise<StoredConnection | null> {
   }
 }
 
-async function writeStored(data: StoredConnection): Promise<void> {
-  const mode = getStorageMode();
-  const content = JSON.stringify(data, null, 2);
-
-  if (mode === "blob") {
-    const { blobs } = await list({ prefix: BLOB_PATHNAME, limit: 10 });
-    for (const blob of blobs) {
-      await del(blob.url);
-    }
-    await put(BLOB_PATHNAME, content, {
-      access: "public",
-      addRandomSuffix: false,
-      contentType: "application/json",
-    });
-    return;
-  }
-
-  writeFileSync(getLocalFilePath(), content, "utf8");
+function writeToFile(data: StoredConnection): void {
+  writeFileSync(getLocalFilePath(), JSON.stringify(data, null, 2), "utf8");
 }
 
-async function removeStored(): Promise<void> {
-  const mode = getStorageMode();
-
-  if (mode === "blob") {
-    try {
-      const { blobs } = await list({ prefix: BLOB_PATHNAME, limit: 1 });
-      for (const blob of blobs) {
-        await del(blob.url);
-      }
-    } catch {
-      // dosya yoksa sorun degil
-    }
-    return;
-  }
-
+function removeFile(): void {
   const filePath = getLocalFilePath();
   if (existsSync(filePath)) {
     unlinkSync(filePath);
   }
+}
+
+async function readFromPostgres(): Promise<StoredConnection | null> {
+  await ensureTable();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT id, access_token_encrypted, meta_user_id,
+           selected_ad_account_id, selected_ad_account_name,
+           created_at, updated_at
+    FROM meta_connections
+    WHERE id = ${CONNECTION_ID}
+    LIMIT 1
+  `;
+
+  if (rows.length === 0) return null;
+
+  const row = rows[0] as MetaConnectionRow;
+  return {
+    accessTokenEncrypted: row.access_token_encrypted,
+    selectedAdAccountId: row.selected_ad_account_id,
+    selectedAdAccountName: row.selected_ad_account_name,
+    metaUserId: row.meta_user_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function writeToPostgres(data: StoredConnection): Promise<void> {
+  await ensureTable();
+  const sql = getSql();
+  await sql`
+    INSERT INTO meta_connections (
+      id, access_token_encrypted, meta_user_id,
+      selected_ad_account_id, selected_ad_account_name,
+      created_at, updated_at
+    ) VALUES (
+      ${CONNECTION_ID},
+      ${data.accessTokenEncrypted},
+      ${data.metaUserId},
+      ${data.selectedAdAccountId},
+      ${data.selectedAdAccountName},
+      ${data.createdAt},
+      ${data.updatedAt}
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      access_token_encrypted = EXCLUDED.access_token_encrypted,
+      meta_user_id = EXCLUDED.meta_user_id,
+      selected_ad_account_id = EXCLUDED.selected_ad_account_id,
+      selected_ad_account_name = EXCLUDED.selected_ad_account_name,
+      updated_at = EXCLUDED.updated_at
+  `;
+}
+
+async function removeFromPostgres(): Promise<void> {
+  if (!hasPostgres()) return;
+  await ensureTable();
+  const sql = getSql();
+  await sql`DELETE FROM meta_connections WHERE id = ${CONNECTION_ID}`;
+}
+
+async function readStored(): Promise<StoredConnection | null> {
+  if (hasPostgres()) {
+    return readFromPostgres();
+  }
+  if (process.env.VERCEL === "1") {
+    throw new Error("POSTGRES_URL veya DATABASE_URL tanimli degil");
+  }
+  return readFromFile();
+}
+
+async function writeStored(data: StoredConnection): Promise<void> {
+  if (hasPostgres()) {
+    await writeToPostgres(data);
+    return;
+  }
+  if (process.env.VERCEL === "1") {
+    throw new Error("POSTGRES_URL veya DATABASE_URL tanimli degil");
+  }
+  writeToFile(data);
+}
+
+async function removeStored(): Promise<void> {
+  if (hasPostgres()) {
+    await removeFromPostgres();
+    return;
+  }
+  if (process.env.VERCEL === "1") {
+    throw new Error("POSTGRES_URL veya DATABASE_URL tanimli degil");
+  }
+  removeFile();
 }
 
 export async function getMetaConnection(): Promise<MetaConnection | null> {

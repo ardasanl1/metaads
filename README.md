@@ -19,28 +19,32 @@ npm run dev
 
 **Entegrasyonlar** sayfasından:
 
-1. **Meta Access Token** — [Graph API Explorer](https://developers.facebook.com/tools/explorer/) (`ads_read`, `ads_management`)
+1. **Meta Access Token** — [Graph API Explorer](https://developers.facebook.com/tools/explorer/)
 2. **Reklam Hesabı ID** — `act_123456789`
 
-Yerelde veriler `.data/meta-connection.txt` dosyasına kaydedilir.
+## Depolama
 
-## Vercel Deployment
+| Ortam | Nerede |
+|---|---|
+| Vercel + Neon | `meta_connections` tablosu (Postgres) |
+| Yerel (Neon yok) | `.data/meta-connection.txt` |
 
-1. Projeyi Vercel'e bağlayın.
-2. **Environment Variables** ekleyin:
-   - `APP_PASSWORD`
-   - `SESSION_SECRET`
-   - `META_API_VERSION` (opsiyonel)
-3. **Storage → Blob** oluşturun ve projeye bağlayın (`BLOB_READ_WRITE_TOKEN` otomatik eklenir).
-4. Redeploy yapın.
+Token şifreli saklanır.
 
-Vercel'de dosya sistemi salt okunur olduğu için Blob Store zorunludur.
+## Vercel + Neon
+
+1. Vercel → **Storage** → **Neon** → **Create** → projeye **Connect**
+2. `POSTGRES_URL` otomatik eklenir
+3. `APP_PASSWORD` ve `SESSION_SECRET` tanımlı olsun
+4. **Redeploy**
+
+Tablo ilk bağlantıda otomatik oluşturulur.
 
 ## Environment Variables
 
 | Değişken | Açıklama |
 |---|---|
 | `APP_PASSWORD` | Panel giriş parolası |
-| `SESSION_SECRET` | Oturum imzalama ve token şifreleme |
+| `SESSION_SECRET` | Oturum ve token şifreleme |
 | `META_API_VERSION` | Opsiyonel, varsayılan `v23.0` |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob (canlı ortamda zorunlu) |
+| `POSTGRES_URL` | Neon Postgres (Vercel'de otomatik) |
