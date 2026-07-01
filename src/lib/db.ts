@@ -1,4 +1,6 @@
 import { createClient, type Client } from "@libsql/client";
+import { existsSync, mkdirSync } from "fs";
+import { join } from "path";
 import { decryptToken, encryptToken } from "./token-crypto";
 
 const CONNECTION_ID = "default";
@@ -7,14 +9,33 @@ const META_SETTINGS_ID = "default";
 let client: Client | null = null;
 let initialized = false;
 
+export function getDatabaseMode(): "turso" | "local" | "missing" {
+  if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
+    return "turso";
+  }
+  if (process.env.VERCEL === "1") {
+    return "missing";
+  }
+  return "local";
+}
+
 function getClient(): Client {
   if (!client) {
     const url = process.env.TURSO_DATABASE_URL;
     const authToken = process.env.TURSO_AUTH_TOKEN;
-    if (!url || !authToken) {
+
+    if (url && authToken) {
+      client = createClient({ url, authToken });
+    } else if (process.env.VERCEL === "1") {
       throw new Error("Turso yapilandirmasi eksik");
+    } else {
+      const dataDir = join(process.cwd(), ".data");
+      if (!existsSync(dataDir)) {
+        mkdirSync(dataDir, { recursive: true });
+      }
+      const dbPath = join(dataDir, "panel.db");
+      client = createClient({ url: `file:${dbPath}` });
     }
-    client = createClient({ url, authToken });
   }
 
   return client;

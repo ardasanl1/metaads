@@ -38,6 +38,9 @@ export class MetaApiError extends Error {
 }
 
 export async function hasMetaConfig(): Promise<boolean> {
+  const fromEnv = getMetaConfigFromEnv();
+  if (fromEnv) return true;
+
   const record = await getMetaSettingsRecord();
   return Boolean(
     record?.appId &&
@@ -47,7 +50,21 @@ export async function hasMetaConfig(): Promise<boolean> {
   );
 }
 
+function getMetaConfigFromEnv(): MetaConfig | null {
+  const appId = process.env.META_APP_ID?.trim();
+  const appSecret = process.env.META_APP_SECRET?.trim();
+  const redirectUri = process.env.META_REDIRECT_URI?.trim();
+  const apiVersion = process.env.META_API_VERSION?.trim();
+  if (!appId || !appSecret || !redirectUri || !apiVersion) {
+    return null;
+  }
+  return { appId, appSecret, redirectUri, apiVersion };
+}
+
 export async function getMetaConfig(): Promise<MetaConfig> {
+  const fromEnv = getMetaConfigFromEnv();
+  if (fromEnv) return fromEnv;
+
   const record = await getMetaSettingsRecord();
   if (!record) {
     throw new MetaApiError("Meta yapilandirmasi eksik", 400);
@@ -87,6 +104,16 @@ export async function saveMetaConfig(input: SaveMetaConfigInput): Promise<Public
 }
 
 export async function getPublicMetaConfig(): Promise<PublicMetaConfig | null> {
+  const fromEnv = getMetaConfigFromEnv();
+  if (fromEnv) {
+    return {
+      appId: fromEnv.appId,
+      redirectUri: fromEnv.redirectUri,
+      apiVersion: fromEnv.apiVersion,
+      hasAppSecret: true,
+    };
+  }
+
   const record = await getMetaSettingsRecord();
   if (!record) {
     return null;

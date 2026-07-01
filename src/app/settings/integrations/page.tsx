@@ -41,6 +41,29 @@ const EMPTY_FORM: MetaSettingsForm = {
   apiVersion: "v23.0",
 };
 
+const FORM_DRAFT_KEY = "meta-settings-draft";
+
+function readFormDraft(): MetaSettingsForm | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(FORM_DRAFT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as MetaSettingsForm;
+  } catch {
+    return null;
+  }
+}
+
+function writeFormDraft(form: MetaSettingsForm) {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(FORM_DRAFT_KEY, JSON.stringify(form));
+}
+
+function clearFormDraft() {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(FORM_DRAFT_KEY);
+}
+
 function getIntegrationStatusLabel(
   settings: MetaSettings | null,
   status: MetaStatus | null,
@@ -77,6 +100,7 @@ function IntegrationsPanel() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
+  const [dbHint, setDbHint] = useState("");
 
   const productionRedirectSuggestion =
     typeof window === "undefined"
@@ -108,6 +132,9 @@ function IntegrationsPanel() {
     async function load() {
       setLoading(true);
       setError("");
+      setDbHint("");
+
+      const draft = readFormDraft();
 
       try {
         const [settingsRes, statusRes] = await Promise.all([
@@ -115,47 +142,74 @@ function IntegrationsPanel() {
           fetch("/api/meta/status"),
         ]);
 
-        const settingsData = (await settingsRes.json()) as MetaSettings & { error?: string };
-        const statusData = (await statusRes.json()) as MetaStatus & { error?: string };
+        const settingsData = (await settingsRes.json()) as MetaSettings & {
+          error?: string;
+          hint?: string;
+        };
+        const statusData = (await statusRes.json()) as MetaStatus & {
+          error?: string;
+          hint?: string;
+        };
 
         if (!settingsRes.ok) {
           setError(settingsData.error ?? "Meta ayarlari yuklenemedi");
-          return;
+          if (settingsData.hint) setDbHint(settingsData.hint);
+          if (draft) {
+            setForm(draft);
+          } else if (settingsData.appId) {
+            setForm({
+              appId: settingsData.appId ?? "",
+              appSecret: "",
+              redirectUri: settingsData.redirectUri ?? "",
+              apiVersion: settingsData.apiVersion ?? "v23.0",
+            });
+          }
+        } else {
+          setSettings(settingsData);
+          setForm({
+            appId: settingsData.appId,
+            appSecret: "",
+            redirectUri: settingsData.redirectUri,
+            apiVersion: settingsData.apiVersion,
+          });
+          if (settingsData.configured) {
+            clearFormDraft();
+          }
         }
 
         if (!statusRes.ok) {
-          setError(statusData.error ?? "Meta durum bilgisi yuklenemedi");
-          return;
-        }
-
-        setSettings(settingsData);
-        setForm({
-          appId: settingsData.appId,
-          appSecret: "",
-          redirectUri: settingsData.redirectUri,
-          apiVersion: settingsData.apiVersion,
-        });
-        setStatus(statusData);
-
-        if (statusData.connected) {
-          const accountsRes = await fetch("/api/meta/ad-accounts");
-          const accountsData = (await accountsRes.json()) as {
-            accounts?: AdAccount[];
-            error?: string;
-          };
-
-          if (accountsRes.ok) {
-            setAccounts(accountsData.accounts ?? []);
-            setSelectedId(statusData.selectedAdAccountId ?? "");
+          if (!settingsRes.ok) {
+            setError((prev) => prev || (statusData.error ?? "Meta durum bilgisi yuklenemedi"));
           } else {
-            setError(accountsData.error ?? "Reklam hesaplari yuklenemedi");
+            setError(statusData.error ?? "Meta durum bilgisi yuklenemedi");
           }
+          if (statusData.hint) setDbHint(statusData.hint);
         } else {
-          setAccounts([]);
-          setSelectedId("");
+          setStatus(statusData);
+
+          if (statusData.connected) {
+            const accountsRes = await fetch("/api/meta/ad-accounts");
+            const accountsData = (await accountsRes.json()) as {
+              accounts?: AdAccount[];
+              error?: string;
+              hint?: string;
+            };
+
+            if (accountsRes.ok) {
+              setAccounts(accountsData.accounts ?? []);
+              setSelectedId(statusData.selectedAdAccountId ?? "");
+            } else {
+              setError(accountsData.error ?? "Reklam hesaplari yuklenemedi");
+              if (accountsData.hint) setDbHint(accountsData.hint);
+            }
+          } else {
+            setAccounts([]);
+            setSelectedId("");
+          }
         }
       } catch {
         setError("Veriler yuklenirken bir hata olustu");
+        if (draft) setForm(draft);
       } finally {
         setLoading(false);
       }
@@ -165,7 +219,11 @@ function IntegrationsPanel() {
   }, []);
 
   function updateForm<K extends keyof MetaSettingsForm>(key: K, value: MetaSettingsForm[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      writeFormDraft(next);
+      return next;
+    });
   }
 
   async function handleSaveSettings(e: FormEvent<HTMLFormElement>) {
@@ -174,6 +232,8 @@ function IntegrationsPanel() {
     setFormError("");
     setMessage("");
     setError("");
+    setDbHint("");
+    writeFormDraft(form);
 
     try {
       const res = await fetch("/api/meta/settings", {
@@ -181,15 +241,17 @@ function IntegrationsPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      const data = (await res.json()) as MetaSettings & { error?: string };
+      const data = (await res.json()) as MetaSettings & { error?: string; hint?: string };
 
       if (!res.ok) {
         setFormError(data.error ?? "Meta ayarlari kaydedilemedi");
+        if (data.hint) setDbHint(data.hint);
         return;
       }
 
       setSettings(data);
       setForm((prev) => ({ ...prev, appSecret: "" }));
+      clearFormDraft();
       setMessage("Meta ayarlari kaydedildi.");
     } catch {
       setFormError("Meta ayarlari kaydedilirken bir hata olustu");
@@ -314,6 +376,19 @@ function IntegrationsPanel() {
         )}
         {error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        )}
+        {dbHint && (
+          <p className="rounded-lg bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
+            {dbHint}{" "}
+            <a
+              href="https://turso.tech"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-blue-600 hover:text-blue-800"
+            >
+              Turso kurulumu
+            </a>
+          </p>
         )}
 
         {!loading && (
