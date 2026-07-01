@@ -36,5 +36,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env.local
+# local data (meta token + account — git'e eklenmez)
 /.data/
-local.db

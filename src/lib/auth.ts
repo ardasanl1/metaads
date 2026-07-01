@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 export const SESSION_COOKIE = "panel_session";
-export const OAUTH_STATE_COOKIE = "meta_oauth_state";
 
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 

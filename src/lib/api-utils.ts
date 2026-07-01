@@ -14,15 +14,6 @@ export function handleApiError(error: unknown): NextResponse {
     if (error.message.includes("SESSION_SECRET tanimli degil")) {
       return jsonError("SESSION_SECRET tanimli degil", 500);
     }
-    if (error.message.includes("Turso yapilandirmasi eksik")) {
-      return NextResponse.json(
-        {
-          error: "Sunucu veritabani yapilandirmasi eksik",
-          hint: "Vercel ortaminda TURSO_DATABASE_URL ve TURSO_AUTH_TOKEN tanimlayin. Turso: https://turso.tech",
-        },
-        { status: 500 },
-      );
-    }
     if (error.message.includes("Sifreli veri gecersiz")) {
       return jsonError("Kayitli gizli veri okunamadi", 500);
     }

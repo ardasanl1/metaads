@@ -9,81 +9,29 @@ npm install
 cp .env.example .env.local
 ```
 
-`.env.local` dosyasındaki değişkenleri doldurun, ardından:
+`.env.local` dosyasında `APP_PASSWORD` ve `SESSION_SECRET` tanımlayın:
 
 ```bash
 npm run dev
 ```
 
-## Meta Developer App
+## Meta Bağlantısı
 
-1. [Meta for Developers — My Apps](https://developers.facebook.com/apps/) üzerinde yeni bir uygulama oluşturun.
-2. **Marketing API** ürününü ve uygun use case'i ekleyin.
-3. **Facebook Login** ürününü ekleyin (OAuth için gerekli).
-4. **OAuth Redirect URI** olarak şunları ekleyin:
-   - Local: `http://localhost:3000/api/meta/callback`
-   - Production: `https://PROJE-ADRESI.vercel.app/api/meta/callback`
-5. Uygulama izinlerinde `ads_read` ve `ads_management` talep edin.
-6. Aşağıdaki tablodaki alanları `.env.local` dosyasına ekleyin.
+OAuth veya Turso gerekmez. Panelde **Entegrasyonlar** sayfasından:
 
-### Meta değerleri nereden alınır?
+1. **Meta Access Token** — [Graph API Explorer](https://developers.facebook.com/tools/explorer/) (`ads_read`, `ads_management` izinleriyle)
+2. **Reklam Hesabı ID** — `act_123456789` formatında
 
-| Değişken | Nereden alınır | Link |
-|---|---|---|
-| `META_APP_ID` | Uygulama paneli → **Settings** → **Basic** → **App ID** | [My Apps](https://developers.facebook.com/apps/) |
-| `META_APP_SECRET` | Aynı sayfa → **App Secret** → **Show** | [My Apps](https://developers.facebook.com/apps/) |
-| `META_REDIRECT_URI` | **Facebook Login** → **Settings** → **Valid OAuth Redirect URIs** listesine ekleyin; `.env.local` değeri bu listedeki adresle birebir aynı olmalı | [OAuth Redirect URI rehberi](https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow) |
-| `META_API_VERSION` | Kullanmak istediğiniz Graph API sürümü (ör. `v22.0`) | [Graph API Changelog](https://developers.facebook.com/docs/graph-api/changelog) |
-
-**App ID ve App Secret:**
-
-1. [developers.facebook.com/apps](https://developers.facebook.com/apps/) → uygulamanızı seçin.
-2. **App settings** → **Basic** sayfasını açın.
-3. **App ID** → `META_APP_ID`
-4. **App Secret** → **Show** → `META_APP_SECRET`
-
-**Redirect URI:**
-
-1. **Facebook Login** → **Settings** → **Valid OAuth Redirect URIs**
-2. Geliştirme: `http://localhost:3000/api/meta/callback`
-3. Canlı: `https://PROJE-ADRESI.vercel.app/api/meta/callback`
-4. `.env.local` içindeki `META_REDIRECT_URI` değerini ortamınıza göre eşleştirin.
+Bağlantı bilgileri `.data/meta-connection.txt` dosyasına şifreli olarak kaydedilir (git'e eklenmez).
 
 ## Environment Variables
 
 | Değişken | Açıklama |
 |---|---|
-| `TURSO_DATABASE_URL` | Turso veritabanı URL'si |
-| `TURSO_AUTH_TOKEN` | Turso auth token |
 | `APP_PASSWORD` | Panel giriş parolası |
-| `SESSION_SECRET` | Oturum imzalama ve token şifreleme anahtarı |
-| `META_APP_ID` | Meta uygulama ID — [My Apps](https://developers.facebook.com/apps/) → Settings → Basic |
-| `META_APP_SECRET` | Meta uygulama secret — aynı sayfa, **Show** (client'a gönderilmez) |
-| `META_REDIRECT_URI` | OAuth callback URL — [Facebook Login Settings](https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow) |
-| `META_API_VERSION` | Graph API sürümü (ör. `v22.0`) |
+| `SESSION_SECRET` | Oturum imzalama ve token şifreleme |
+| `META_API_VERSION` | Opsiyonel, varsayılan `v23.0` |
 
-## Turso
+## Vercel Notu
 
-1. [Turso](https://turso.tech/) üzerinde veritabanı oluşturun.
-2. `TURSO_DATABASE_URL` ve `TURSO_AUTH_TOKEN` değerlerini alın.
-3. Uygulama ilk çalıştığında `meta_connections` tablosu otomatik oluşturulur.
-
-## Vercel Deployment
-
-1. Projeyi Vercel'e import edin.
-2. Tüm environment variable'ları Vercel dashboard'dan ekleyin.
-3. `META_REDIRECT_URI` değerini production URL'nize göre güncelleyin.
-4. Meta Developer panelinde production callback URI'sini **Valid OAuth Redirect URIs** listesine ekleyin.
-5. Environment variable ekledikten veya değiştirdikten sonra **redeploy** yapın.
-
-## Panel Girişi
-
-Tek kullanıcılı giriş: parola `APP_PASSWORD` ile doğrulanır. Başarılı girişte HttpOnly signed cookie oluşturulur.
-
-## Meta Bağlantısı
-
-1. Panele giriş yapın.
-2. **Entegrasyonlar** sayfasından **Meta Hesabını Bağla** butonuna tıklayın.
-3. Meta OAuth ekranında izinleri onaylayın.
-4. Reklam hesabını seçip kaydedin.
-5. **Kampanyalar** sayfasından mevcut kampanyaları görüntüleyin ve yönetin.
+Dosya tabanlı depolama Vercel'de kalıcı değildir. Canlı ortamda ileride veritabanı eklenebilir; şimdilik yerel (`npm run dev`) kullanım için uygundur.

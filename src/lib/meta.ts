@@ -1,31 +1,5 @@
 import "server-only";
-import {
-  getMetaConnection,
-  getMetaSettingsRecord,
-  saveMetaSettingsRecord,
-} from "./db";
-import { decryptSensitiveValue, encryptSensitiveValue } from "./token-crypto";
-
-export type MetaConfig = {
-  appId: string;
-  appSecret: string;
-  redirectUri: string;
-  apiVersion: string;
-};
-
-export type SaveMetaConfigInput = {
-  appId: string;
-  appSecret?: string;
-  redirectUri: string;
-  apiVersion: string;
-};
-
-export type PublicMetaConfig = {
-  appId: string;
-  redirectUri: string;
-  apiVersion: string;
-  hasAppSecret: boolean;
-};
+import { getMetaConnection } from "./db";
 
 export class MetaApiError extends Error {
   status: number;
@@ -37,117 +11,18 @@ export class MetaApiError extends Error {
   }
 }
 
-export async function hasMetaConfig(): Promise<boolean> {
-  const fromEnv = getMetaConfigFromEnv();
-  if (fromEnv) return true;
-
-  const record = await getMetaSettingsRecord();
-  return Boolean(
-    record?.appId &&
-      record.appSecretEncrypted &&
-      record.redirectUri &&
-      record.apiVersion,
-  );
+export function getApiVersion(): string {
+  return process.env.META_API_VERSION?.trim() || "v23.0";
 }
 
-function getMetaConfigFromEnv(): MetaConfig | null {
-  const appId = process.env.META_APP_ID?.trim();
-  const appSecret = process.env.META_APP_SECRET?.trim();
-  const redirectUri = process.env.META_REDIRECT_URI?.trim();
-  const apiVersion = process.env.META_API_VERSION?.trim();
-  if (!appId || !appSecret || !redirectUri || !apiVersion) {
-    return null;
-  }
-  return { appId, appSecret, redirectUri, apiVersion };
+function graphBaseUrl(): string {
+  return `https://graph.facebook.com/${getApiVersion()}`;
 }
 
-export async function getMetaConfig(): Promise<MetaConfig> {
-  const fromEnv = getMetaConfigFromEnv();
-  if (fromEnv) return fromEnv;
-
-  const record = await getMetaSettingsRecord();
-  if (!record) {
-    throw new MetaApiError("Meta yapilandirmasi eksik", 400);
-  }
-
-  return {
-    appId: record.appId,
-    appSecret: decryptSensitiveValue(record.appSecretEncrypted),
-    redirectUri: record.redirectUri,
-    apiVersion: record.apiVersion,
-  };
-}
-
-export async function saveMetaConfig(input: SaveMetaConfigInput): Promise<PublicMetaConfig> {
-  const existing = await getMetaSettingsRecord();
-  const appSecretEncrypted = input.appSecret
-    ? encryptSensitiveValue(input.appSecret)
-    : existing?.appSecretEncrypted;
-
-  if (!appSecretEncrypted) {
-    throw new MetaApiError("Ilk kayitta Meta App Secret gerekli", 400);
-  }
-
-  await saveMetaSettingsRecord({
-    appId: input.appId,
-    appSecretEncrypted,
-    redirectUri: input.redirectUri,
-    apiVersion: input.apiVersion,
-  });
-
-  return {
-    appId: input.appId,
-    redirectUri: input.redirectUri,
-    apiVersion: input.apiVersion,
-    hasAppSecret: true,
-  };
-}
-
-export async function getPublicMetaConfig(): Promise<PublicMetaConfig | null> {
-  const fromEnv = getMetaConfigFromEnv();
-  if (fromEnv) {
-    return {
-      appId: fromEnv.appId,
-      redirectUri: fromEnv.redirectUri,
-      apiVersion: fromEnv.apiVersion,
-      hasAppSecret: true,
-    };
-  }
-
-  const record = await getMetaSettingsRecord();
-  if (!record) {
-    return null;
-  }
-
-  return {
-    appId: record.appId,
-    redirectUri: record.redirectUri,
-    apiVersion: record.apiVersion,
-    hasAppSecret: Boolean(record.appSecretEncrypted),
-  };
-}
-
-function parseMetaErrorMessage(data: {
-  error?: { message?: string; type?: string; code?: number };
-}): string {
-  return data.error?.message || "Meta API istegi basarisiz oldu";
-}
-
-async function graphBaseUrl(): Promise<string> {
-  const { apiVersion } = await getMetaConfig();
-  return `https://graph.facebook.com/${apiVersion}`;
-}
-
-export async function buildMetaOAuthUrl(state: string): Promise<string> {
-  const { appId, redirectUri, apiVersion } = await getMetaConfig();
-  const params = new URLSearchParams({
-    client_id: appId,
-    redirect_uri: redirectUri,
-    state,
-    scope: "ads_read,ads_management",
-  });
-
-  return `https://www.facebook.com/${apiVersion}/dialog/oauth?${params.toString()}`;
+export function normalizeAdAccountId(accountId: string): string {
+  const trimmed = accountId.trim();
+  if (!trimmed) return "";
+  return trimmed.startsWith("act_") ? trimmed : `act_${trimmed}`;
 }
 
 async function parseMetaResponse<T>(response: Response): Promise<T> {
@@ -156,42 +31,11 @@ async function parseMetaResponse<T>(response: Response): Promise<T> {
   };
 
   if (!response.ok || data.error) {
-    throw new MetaApiError(parseMetaErrorMessage(data), response.ok ? 502 : response.status);
+    const message = data.error?.message || "Meta API istegi basarisiz oldu";
+    throw new MetaApiError(message, response.ok ? 502 : response.status);
   }
 
   return data;
-}
-
-export async function exchangeCodeForAccessToken(code: string): Promise<{
-  access_token: string;
-  token_type?: string;
-  expires_in?: number;
-}> {
-  const { appId, appSecret, redirectUri } = await getMetaConfig();
-  const params = new URLSearchParams({
-    client_id: appId,
-    client_secret: appSecret,
-    redirect_uri: redirectUri,
-    code,
-  });
-  const response = await fetch(`${await graphBaseUrl()}/oauth/access_token?${params.toString()}`);
-  return parseMetaResponse(response);
-}
-
-export async function exchangeForLongLivedToken(shortLivedToken: string): Promise<{
-  access_token: string;
-  token_type?: string;
-  expires_in?: number;
-}> {
-  const { appId, appSecret } = await getMetaConfig();
-  const params = new URLSearchParams({
-    grant_type: "fb_exchange_token",
-    client_id: appId,
-    client_secret: appSecret,
-    fb_exchange_token: shortLivedToken,
-  });
-  const response = await fetch(`${await graphBaseUrl()}/oauth/access_token?${params.toString()}`);
-  return parseMetaResponse(response);
 }
 
 async function getStoredAccessToken(): Promise<string> {
@@ -211,8 +55,7 @@ export async function metaRequest<T = unknown>(
   } = {},
 ): Promise<T> {
   const token = options.token ?? (await getStoredAccessToken());
-  const baseUrl = await graphBaseUrl();
-  const url = path.startsWith("http") ? path : `${baseUrl}/${path.replace(/^\//, "")}`;
+  const url = path.startsWith("http") ? path : `${graphBaseUrl()}/${path.replace(/^\//, "")}`;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
   };
@@ -231,45 +74,32 @@ export async function metaRequest<T = unknown>(
   return parseMetaResponse<T>(response);
 }
 
-export type AdAccount = {
-  id: string;
-  name: string;
-  account_status: number;
-  currency: string;
-  timezone_name: string;
-};
-
-export async function getAdAccounts(): Promise<AdAccount[]> {
-  const data = await metaRequest<{ data: AdAccount[] }>(
-    "me/adaccounts?fields=id,name,account_status,currency,timezone_name&limit=100",
-  );
-  return data.data ?? [];
-}
-
-type PagedResult<T> = {
-  data: T[];
-  paging?: { next?: string };
-};
-
-async function fetchPaged<T>(initialPath: string, max = 100): Promise<T[]> {
-  const baseUrl = await graphBaseUrl();
-  let nextPath: string | null = initialPath;
-  const results: T[] = [];
-
-  while (nextPath && results.length < max) {
-    const page: PagedResult<T> = await metaRequest(nextPath);
-    if (page.data) {
-      results.push(...page.data);
-    }
-
-    if (page.paging?.next && results.length < max) {
-      nextPath = page.paging.next.replace(`${baseUrl}/`, "");
-    } else {
-      nextPath = null;
-    }
+export async function verifyMetaConnection(
+  accessToken: string,
+  adAccountId: string,
+): Promise<{ accountName: string; metaUserId: string | null }> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  if (!accountPath) {
+    throw new MetaApiError("Reklam hesabi ID gerekli", 400);
   }
 
-  return results.slice(0, max);
+  const account = await metaRequest<{ id: string; name: string }>(
+    `${accountPath}?fields=id,name`,
+    { token: accessToken },
+  );
+
+  let metaUserId: string | null = null;
+  try {
+    const me = await metaRequest<{ id: string }>("me?fields=id", { token: accessToken });
+    metaUserId = me.id;
+  } catch {
+    metaUserId = null;
+  }
+
+  return {
+    accountName: account.name,
+    metaUserId,
+  };
 }
 
 export type Campaign = {
@@ -283,7 +113,7 @@ export type Campaign = {
 };
 
 export async function getCampaigns(adAccountId: string): Promise<Campaign[]> {
-  const accountPath = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
+  const accountPath = normalizeAdAccountId(adAccountId);
   const fields = "id,name,objective,status,effective_status,created_time,updated_time";
   return fetchPaged<Campaign>(`${accountPath}/campaigns?fields=${fields}&limit=100`);
 }
@@ -333,6 +163,32 @@ export async function getAds(adSetId: string): Promise<Ad[]> {
   return fetchPaged<Ad>(`${adSetId}/ads?fields=${fields}&limit=100`);
 }
 
+type PagedResult<T> = {
+  data: T[];
+  paging?: { next?: string };
+};
+
+async function fetchPaged<T>(initialPath: string, max = 100): Promise<T[]> {
+  const baseUrl = graphBaseUrl();
+  let nextPath: string | null = initialPath;
+  const results: T[] = [];
+
+  while (nextPath && results.length < max) {
+    const page: PagedResult<T> = await metaRequest(nextPath);
+    if (page.data) {
+      results.push(...page.data);
+    }
+
+    if (page.paging?.next && results.length < max) {
+      nextPath = page.paging.next.replace(`${baseUrl}/`, "");
+    } else {
+      nextPath = null;
+    }
+  }
+
+  return results.slice(0, max);
+}
+
 export async function updateCampaign(
   id: string,
   input: { name?: string; status?: "ACTIVE" | "PAUSED" },
@@ -376,9 +232,4 @@ export async function updateAd(
   return metaRequest<Ad>(
     `${id}?fields=id,name,campaign_id,adset_id,status,effective_status,created_time,updated_time,creative{id,name,thumbnail_url},issues_info,ad_review_feedback`,
   );
-}
-
-export async function getMetaUserId(token: string): Promise<string> {
-  const data = await metaRequest<{ id: string }>("me?fields=id", { token });
-  return data.id;
 }
