@@ -6,8 +6,17 @@ import { getInsightsQueryFromRequest } from "@/lib/api-insights";
 import { handleApiError, jsonError } from "@/lib/api-utils";
 import { parseMetaInsights } from "@/utils/insights";
 import type { CampaignWithInsights } from "@/types/meta";
-import type { BuyingType, CampaignObjective, CampaignStatus, SpecialAdCategory } from "@/utils/campaign-constants";
-import { BUYING_TYPES, CAMPAIGN_OBJECTIVES, SPECIAL_AD_CATEGORIES } from "@/utils/campaign-constants";
+import {
+  BUYING_TYPES,
+  CAMPAIGN_OBJECTIVES,
+  NO_SPECIAL_CATEGORY,
+  normalizeSpecialAdCategoriesForApi,
+  SPECIAL_AD_CATEGORIES,
+  type BuyingType,
+  type CampaignObjective,
+  type CampaignStatus,
+  type SpecialAdCategoryForm,
+} from "@/utils/campaign-constants";
 
 export async function GET(request: NextRequest) {
   if (!isAuthenticatedRequest(request)) {
@@ -52,7 +61,8 @@ function isValidBuyingType(value: string): value is BuyingType {
   return BUYING_TYPES.some((item) => item.value === value);
 }
 
-function isValidSpecialCategory(value: string): value is SpecialAdCategory {
+function isValidSpecialCategory(value: string): value is SpecialAdCategoryForm {
+  if (value === NO_SPECIAL_CATEGORY) return true;
   return SPECIAL_AD_CATEGORIES.some((item) => item.value === value);
 }
 
@@ -83,19 +93,21 @@ export async function POST(request: NextRequest) {
       return jsonError("Kampanya adı gerekli", 400);
     }
     if (!body.objective || !isValidObjective(body.objective)) {
-      return jsonError("Geçerli bir objective seçin", 400);
+      return jsonError("Geçerli bir kampanya hedefi seçin", 400);
     }
     if (!body.buyingType || !isValidBuyingType(body.buyingType)) {
-      return jsonError("Geçerli bir buying type seçin", 400);
+      return jsonError("Geçerli bir satın alma türü seçin", 400);
     }
 
-    const categories = body.specialAdCategories ?? ["NONE"];
-    if (!Array.isArray(categories) || categories.length === 0) {
-      return jsonError("Special ad categories gerekli", 400);
+    const rawCategories = body.specialAdCategories ?? [NO_SPECIAL_CATEGORY];
+    if (!Array.isArray(rawCategories)) {
+      return jsonError("Özel reklam kategorisi gerekli", 400);
     }
-    if (!categories.every(isValidSpecialCategory)) {
-      return jsonError("Geçersiz special ad category", 400);
+    if (!rawCategories.every(isValidSpecialCategory)) {
+      return jsonError("Geçersiz özel reklam kategorisi", 400);
     }
+
+    const categories = normalizeSpecialAdCategoriesForApi(rawCategories);
 
     const status = body.status ?? "PAUSED";
     if (!isValidStatus(status)) {

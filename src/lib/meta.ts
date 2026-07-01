@@ -7,7 +7,7 @@ import {
   normalizeAdAccountRecord,
   type AdAccountRaw,
 } from "@/utils/ad-account";
-import type { BuyingType, CampaignObjective, CampaignStatus, SpecialAdCategory } from "@/utils/campaign-constants";
+import type { BuyingType, CampaignObjective, CampaignStatus, SpecialAdCategoryApi } from "@/utils/campaign-constants";
 
 export { normalizeAdAccountId };
 
@@ -283,8 +283,9 @@ export type CreateCampaignInput = {
   name: string;
   objective: CampaignObjective;
   buyingType: BuyingType;
-  specialAdCategories: SpecialAdCategory[];
+  specialAdCategories: SpecialAdCategoryApi[];
   status?: CampaignStatus;
+  isAdsetBudgetSharingEnabled?: boolean;
 };
 
 export async function createCampaign(
@@ -296,7 +297,7 @@ export async function createCampaign(
     throw new MetaApiError("Reklam hesabı ID gerekli", 400);
   }
 
-  const categories = input.specialAdCategories.filter((category) => category !== "NONE");
+  const categories = input.specialAdCategories;
 
   const body: Record<string, string> = {
     name: input.name.trim(),
@@ -304,6 +305,7 @@ export async function createCampaign(
     buying_type: input.buyingType,
     status: input.status ?? "PAUSED",
     special_ad_categories: JSON.stringify(categories),
+    is_adset_budget_sharing_enabled: input.isAdsetBudgetSharingEnabled ? "true" : "false",
   };
 
   return metaRequest<{ id: string }>(`${accountPath}/campaigns`, {

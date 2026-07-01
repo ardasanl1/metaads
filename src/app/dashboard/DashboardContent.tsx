@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 import PanelLayout from "@/components/PanelLayout";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { CampaignTable } from "@/components/campaigns/CampaignTable";
@@ -12,7 +13,12 @@ import { useCampaigns } from "@/hooks/use-campaigns";
 import { useDateFilter } from "@/hooks/use-date-filter";
 
 function DashboardBody() {
-  const dateFilter = useDateFilter();
+  const { quickDateFilter, since, until, setState } = useDateFilter();
+  const dateFilterState = useMemo(
+    () => ({ quickDateFilter, since, until }),
+    [quickDateFilter, since, until],
+  );
+
   const {
     isReady,
     status,
@@ -30,7 +36,7 @@ function DashboardBody() {
     sortField,
     sortDirection,
     toggleSort,
-  } = useCampaigns(accountKey, isReady, dateFilter);
+  } = useCampaigns(accountKey, isReady, dateFilterState);
 
   const recentCampaigns = campaigns.slice(0, 5);
   const displayError = error ?? campaignsError;
@@ -64,18 +70,16 @@ function DashboardBody() {
       )}
 
       {isReady && (
-        <QuickDateFilterBar
-          value={dateFilter}
-          onChange={(value) => dateFilter.setState(value)}
-        />
+        <QuickDateFilterBar value={dateFilterState} onChange={setState} />
       )}
 
-      <DashboardStats dateFilter={dateFilter} />
+      <DashboardStats dateFilter={dateFilterState} />
 
       <div>
         <h2 className="mb-3 text-base font-semibold">Son Kampanyalar</h2>
         <div className="space-y-2">
           <CampaignTable
+            key={`${dateFilterState.quickDateFilter}-${dateFilterState.since}-${dateFilterState.until}-${accountKey}`}
             campaigns={recentCampaigns}
             loading={loading || !isReady}
             sortField={sortField}
@@ -84,9 +88,9 @@ function DashboardBody() {
           />
           {isReady && !loading && (
             <DataDateRangeCaption
-              filter={dateFilter.quickDateFilter}
-              since={dateFilter.since}
-              until={dateFilter.until}
+              filter={dateFilterState.quickDateFilter}
+              since={dateFilterState.since}
+              until={dateFilterState.until}
               accountName={selectedAdAccountName}
             />
           )}
