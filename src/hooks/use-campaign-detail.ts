@@ -8,6 +8,8 @@ import type {
   CampaignWithInsights,
 } from "@/types/meta";
 import {
+  createAd,
+  createAdSet,
   fetchAdSets,
   fetchAds,
   fetchCampaign,
@@ -152,6 +154,64 @@ export function useCampaignDetail(
     [campaignId, loadCampaign, loadAdSets, loadAds, selectedAdSetId],
   );
 
+  const addAdSet = useCallback(
+    async (input: {
+      name: string;
+      dailyBudget: number;
+      status?: "ACTIVE" | "PAUSED";
+      billingEvent: string;
+      optimizationGoal: string;
+      targeting: unknown;
+      promotedObject?: unknown;
+      startTime?: string;
+      endTime?: string;
+    }) => {
+      setSubmitting(true);
+      setError(null);
+      try {
+        await createAdSet({
+          ...input,
+          campaignId,
+        });
+        await loadAdSets();
+        toast.success("Reklam seti oluşturuldu.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Reklam seti oluşturulamadı";
+        setError(message);
+        toast.error(message);
+        throw err;
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [campaignId, loadAdSets],
+  );
+
+  const addAd = useCallback(
+    async (input: {
+      name: string;
+      adSetId: string;
+      creativeId: string;
+      status?: "ACTIVE" | "PAUSED";
+    }) => {
+      setSubmitting(true);
+      setError(null);
+      try {
+        await createAd(input);
+        await loadAds(input.adSetId);
+        toast.success("Reklam oluşturuldu.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Reklam oluşturulamadı";
+        setError(message);
+        toast.error(message);
+        throw err;
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [loadAds],
+  );
+
   return {
     campaign,
     adsets,
@@ -163,6 +223,8 @@ export function useCampaignDetail(
     error,
     submitting,
     executePending,
+    addAdSet,
+    addAd,
     reload: reloadAll,
   };
 }

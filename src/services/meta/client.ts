@@ -5,6 +5,8 @@ import type {
   ApiErrorResponse,
   CampaignWithInsights,
   CreateCampaignPayload,
+  CreateAdPayload,
+  CreateAdSetPayload,
   MetaConnectionStatus,
   MetaConnectionSummary,
   ParsedInsights,
@@ -153,6 +155,14 @@ export async function updateAdSet(
   });
 }
 
+export async function createAdSet(payload: CreateAdSetPayload): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>("/api/meta/adsets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function fetchAds(
   adSetId: string,
   params?: InsightsParams,
@@ -171,6 +181,14 @@ export async function updateAd(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
+  });
+}
+
+export async function createAd(payload: CreateAdPayload): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>("/api/meta/ads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 }
 

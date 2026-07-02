@@ -74,6 +74,8 @@ function CampaignDetailBody() {
     error,
     submitting,
     executePending,
+    addAdSet,
+    addAd,
     reload,
   } = useCampaignDetail(campaignId, isReady, dateFilter, accountKey);
 
@@ -84,6 +86,28 @@ function CampaignDetailBody() {
   const [adSetBudget, setAdSetBudget] = useState("");
   const [editAdId, setEditAdId] = useState<string | null>(null);
   const [adName, setAdName] = useState("");
+
+  const [addAdSetOpen, setAddAdSetOpen] = useState(false);
+  const [newAdSetName, setNewAdSetName] = useState("");
+  const [newAdSetDailyBudget, setNewAdSetDailyBudget] = useState("");
+  const [newAdSetBillingEvent, setNewAdSetBillingEvent] = useState("IMPRESSIONS");
+  const [newAdSetOptimizationGoal, setNewAdSetOptimizationGoal] = useState("LINK_CLICKS");
+  const [newAdSetTargetingJson, setNewAdSetTargetingJson] = useState(
+    JSON.stringify(
+      {
+        geo_locations: { countries: ["TR"] },
+        age_min: 18,
+        age_max: 65,
+      },
+      null,
+      2,
+    ),
+  );
+  const [newAdSetPromotedObjectJson, setNewAdSetPromotedObjectJson] = useState("{}");
+
+  const [addAdOpen, setAddAdOpen] = useState(false);
+  const [newAdName, setNewAdName] = useState("");
+  const [newAdCreativeId, setNewAdCreativeId] = useState("");
 
   useEffect(() => {
     if (campaign) {
@@ -229,6 +253,20 @@ function CampaignDetailBody() {
             </TabsContent>
 
             <TabsContent value="adsets" className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm text-muted-foreground">
+                  Reklam seti eklemek için hedefleme ve optimizasyon bilgileri gerekir.
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setAddAdSetOpen(true)}
+                  disabled={submitting}
+                >
+                  Reklam Seti Ekle
+                </Button>
+              </div>
+
               <Card>
                 <CardHeader>
                   <CardTitle>Reklam Setleri</CardTitle>
@@ -376,6 +414,21 @@ function CampaignDetailBody() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm text-muted-foreground">
+                  Reklam oluşturmak için mevcut bir <span className="font-medium">creative ID</span>{" "}
+                  gerekir.
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setAddAdOpen(true)}
+                  disabled={submitting || !selectedAdSetId}
+                >
+                  Reklam Ekle
+                </Button>
               </div>
 
               {selectedAdSet && (
@@ -539,6 +592,163 @@ function CampaignDetailBody() {
             </Button>
             <Button disabled={submitting} onClick={() => void handleConfirm()}>
               {submitting ? "Uygulanıyor..." : "Devam Et"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addAdSetOpen} onOpenChange={setAddAdSetOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Reklam Seti Ekle</DialogTitle>
+            <DialogDescription>
+              Meta API için gerekli alanları doldurun. Hedefleme ve promoted object JSON formatında
+              gönderilir.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Reklam seti adı</Label>
+              <Input value={newAdSetName} onChange={(e) => setNewAdSetName(e.target.value)} />
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label>Günlük bütçe (TL)</Label>
+                <Input
+                  type="number"
+                  value={newAdSetDailyBudget}
+                  onChange={(e) => setNewAdSetDailyBudget(e.target.value)}
+                  placeholder="Örn: 250"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Billing event</Label>
+                <Input
+                  value={newAdSetBillingEvent}
+                  onChange={(e) => setNewAdSetBillingEvent(e.target.value)}
+                  placeholder="IMPRESSIONS"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Optimization goal</Label>
+                <Input
+                  value={newAdSetOptimizationGoal}
+                  onChange={(e) => setNewAdSetOptimizationGoal(e.target.value)}
+                  placeholder="LINK_CLICKS"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Targeting (JSON)</Label>
+              <textarea
+                className="min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={newAdSetTargetingJson}
+                onChange={(e) => setNewAdSetTargetingJson(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Promoted object (JSON)</Label>
+              <textarea
+                className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={newAdSetPromotedObjectJson}
+                onChange={(e) => setNewAdSetPromotedObjectJson(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Boş bırakmak isterseniz <span className="font-medium">{`{}`}</span> gönderebilirsiniz.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAddAdSetOpen(false)}
+              disabled={submitting}
+            >
+              İptal
+            </Button>
+            <Button
+              onClick={async () => {
+                try {
+                  const dailyBudget = Number(newAdSetDailyBudget);
+                  const targeting = JSON.parse(newAdSetTargetingJson || "{}");
+                  const promotedObject = JSON.parse(newAdSetPromotedObjectJson || "{}");
+                  await addAdSet({
+                    name: newAdSetName,
+                    dailyBudget,
+                    status: "PAUSED",
+                    billingEvent: newAdSetBillingEvent,
+                    optimizationGoal: newAdSetOptimizationGoal,
+                    targeting,
+                    promotedObject,
+                  });
+                  setAddAdSetOpen(false);
+                  setNewAdSetName("");
+                  setNewAdSetDailyBudget("");
+                } catch {
+                  // toast handled in hook
+                }
+              }}
+              disabled={submitting || !newAdSetName.trim() || !newAdSetDailyBudget.trim()}
+            >
+              {submitting ? "Oluşturuluyor..." : "Oluştur"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addAdOpen} onOpenChange={setAddAdOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reklam Ekle</DialogTitle>
+            <DialogDescription>
+              Reklam oluşturmak için mevcut bir <span className="font-medium">creative ID</span>{" "}
+              girin. (Örn: Meta Ads Manager → Creative ID)
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Reklam adı</Label>
+              <Input value={newAdName} onChange={(e) => setNewAdName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Creative ID</Label>
+              <Input
+                value={newAdCreativeId}
+                onChange={(e) => setNewAdCreativeId(e.target.value)}
+                placeholder="120xxxxxxxxxxxx"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddAdOpen(false)} disabled={submitting}>
+              İptal
+            </Button>
+            <Button
+              onClick={async () => {
+                try {
+                  await addAd({
+                    name: newAdName,
+                    adSetId: selectedAdSetId,
+                    creativeId: newAdCreativeId,
+                    status: "PAUSED",
+                  });
+                  setAddAdOpen(false);
+                  setNewAdName("");
+                  setNewAdCreativeId("");
+                } catch {
+                  // toast handled in hook
+                }
+              }}
+              disabled={submitting || !selectedAdSetId || !newAdName.trim() || !newAdCreativeId.trim()}
+            >
+              {submitting ? "Oluşturuluyor..." : "Oluştur"}
             </Button>
           </DialogFooter>
         </DialogContent>

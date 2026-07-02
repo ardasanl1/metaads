@@ -133,6 +133,26 @@ export type CreateCampaignPayload = {
   status?: "ACTIVE" | "PAUSED";
 };
 
+export type CreateAdSetPayload = {
+  name: string;
+  campaignId: string;
+  dailyBudget: number;
+  status?: "ACTIVE" | "PAUSED";
+  billingEvent: string;
+  optimizationGoal: string;
+  targeting: unknown;
+  promotedObject?: unknown;
+  startTime?: string;
+  endTime?: string;
+};
+
+export type CreateAdPayload = {
+  name: string;
+  adSetId: string;
+  creativeId: string;
+  status?: "ACTIVE" | "PAUSED";
+};
+
 export type DateRangePreset =
   | "today"
   | "yesterday"

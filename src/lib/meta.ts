@@ -358,6 +358,51 @@ export async function getAdSets(campaignId: string, query?: InsightsQuery): Prom
   return fetchPaged<AdSet>(`${campaignId}/adsets?fields=${fields}&limit=100`);
 }
 
+export type CreateAdSetInput = {
+  name: string;
+  campaignId: string;
+  dailyBudget: number;
+  status?: "ACTIVE" | "PAUSED";
+  billingEvent: string;
+  optimizationGoal: string;
+  targeting: unknown;
+  promotedObject?: unknown;
+  startTime?: string;
+  endTime?: string;
+};
+
+export async function createAdSet(
+  adAccountId: string,
+  input: CreateAdSetInput,
+): Promise<{ id: string }> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  if (!accountPath) {
+    throw new MetaApiError("Reklam hesabı ID gerekli", 400);
+  }
+
+  const body: Record<string, string | number> = {
+    name: input.name.trim(),
+    campaign_id: input.campaignId,
+    daily_budget: Math.round(input.dailyBudget * 100),
+    status: input.status ?? "PAUSED",
+    billing_event: input.billingEvent,
+    optimization_goal: input.optimizationGoal,
+    targeting: JSON.stringify(input.targeting ?? {}),
+  };
+
+  if (input.promotedObject) {
+    body.promoted_object = JSON.stringify(input.promotedObject);
+  }
+  if (input.startTime) {
+    body.start_time = input.startTime;
+  }
+  if (input.endTime) {
+    body.end_time = input.endTime;
+  }
+
+  return metaRequest<{ id: string }>(`${accountPath}/adsets`, { method: "POST", body });
+}
+
 export type AdCreative = {
   id: string;
   name?: string;
@@ -385,6 +430,32 @@ export async function getAds(adSetId: string, query?: InsightsQuery): Promise<Ad
   const insightsParam = buildInsightsParam(query);
   const fields = insightsParam ? `${baseFields},${insightsParam}` : baseFields;
   return fetchPaged<Ad>(`${adSetId}/ads?fields=${fields}&limit=100`);
+}
+
+export type CreateAdInput = {
+  name: string;
+  adSetId: string;
+  creativeId: string;
+  status?: "ACTIVE" | "PAUSED";
+};
+
+export async function createAd(
+  adAccountId: string,
+  input: CreateAdInput,
+): Promise<{ id: string }> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  if (!accountPath) {
+    throw new MetaApiError("Reklam hesabı ID gerekli", 400);
+  }
+
+  const body: Record<string, string> = {
+    name: input.name.trim(),
+    adset_id: input.adSetId,
+    status: input.status ?? "PAUSED",
+    creative: JSON.stringify({ creative_id: input.creativeId }),
+  };
+
+  return metaRequest<{ id: string }>(`${accountPath}/ads`, { method: "POST", body });
 }
 
 type PagedResult<T> = {
