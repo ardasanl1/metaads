@@ -614,7 +614,12 @@ export async function createAdCreative(
   return metaRequest<{ id: string }>(`${accountPath}/adcreatives`, { method: "POST", body });
 }
 
-export type MetaPage = { id: string; name: string; picture?: { data?: { url?: string } } };
+export type MetaPage = {
+  id: string;
+  name?: string;
+  username?: string;
+  picture?: { data?: { url?: string } };
+};
 
 export type MetaPagesDiagnostics = {
   userAccountsCount: number;
@@ -669,7 +674,7 @@ type PageEdgeFetchResult = {
 };
 
 async function fetchPageEdge(edgeBase: string, token: string): Promise<PageEdgeFetchResult> {
-  const fieldVariants = ["id,name", "id,name,picture{url}"];
+  const fieldVariants = ["id,name,username", "id,name", "id,name,picture{url}"];
   let lastError: string | undefined;
 
   for (const fields of fieldVariants) {
@@ -686,6 +691,34 @@ async function fetchPageEdge(edgeBase: string, token: string): Promise<PageEdgeF
   }
 
   return { pages: [], error: lastError };
+}
+
+function isMissingPageName(id: string, name?: string): boolean {
+  const trimmed = name?.trim();
+  if (!trimmed) return true;
+  return trimmed === id || /^\d+$/.test(trimmed);
+}
+
+async function enrichPageNames(pages: MetaPageOption[], token: string): Promise<void> {
+  const targets = pages.filter((page) => isMissingPageName(page.id, page.name));
+  if (targets.length === 0) return;
+
+  await Promise.all(
+    targets.map(async (page) => {
+      try {
+        const details = await metaRequest<{ name?: string; username?: string }>(
+          `${page.id}?fields=name,username`,
+          { token },
+        );
+        const resolved = details.name?.trim() || details.username?.trim();
+        if (resolved && !isMissingPageName(page.id, resolved)) {
+          page.name = resolved;
+        }
+      } catch {
+        // keep existing fallback
+      }
+    }),
+  );
 }
 
 function extractPageIdFromObjectStorySpec(spec: unknown): string | undefined {
@@ -744,10 +777,12 @@ async function discoverPagesFromExistingCreatives(
   const pages: MetaPage[] = [];
   for (const pageId of pageIds) {
     try {
-      const page = await metaRequest<{ id: string; name?: string }>(`${pageId}?fields=id,name`, {
-        token,
-      });
-      pages.push({ id: page.id, name: page.name?.trim() || page.id });
+      const page = await metaRequest<{ id: string; name?: string; username?: string }>(
+        `${pageId}?fields=id,name,username`,
+        { token },
+      );
+      const resolved = page.name?.trim() || page.username?.trim();
+      pages.push({ id: page.id, name: resolved && !isMissingPageName(page.id, resolved) ? resolved : page.id });
     } catch {
       pages.push({ id: pageId, name: pageId });
     }
@@ -905,13 +940,22 @@ export async function getFacebookPageOptions(input?: {
   const addPages = (items: MetaPage[], source: MetaPageOption["source"]) => {
     for (const page of items) {
       if (!page?.id) continue;
-      if (!byId.has(page.id)) {
+      const name = page.name?.trim() || page.username?.trim();
+      const existing = byId.get(page.id);
+      if (!existing) {
         byId.set(page.id, {
           id: page.id,
-          name: page.name,
+          name: name && !isMissingPageName(page.id, name) ? name : page.id,
           pictureUrl: page.picture?.data?.url,
           source,
         });
+        continue;
+      }
+      if (isMissingPageName(existing.id, existing.name) && name && !isMissingPageName(page.id, name)) {
+        existing.name = name;
+      }
+      if (!existing.pictureUrl && page.picture?.data?.url) {
+        existing.pictureUrl = page.picture.data.url;
       }
     }
   };
@@ -1012,7 +1056,9 @@ export async function getFacebookPageOptions(input?: {
     existing_creative: 5,
     user: 6,
   };
-  const pages = Array.from(byId.values()).sort((a, b) => {
+  const pages = Array.from(byId.values());
+  await enrichPageNames(pages, token);
+  pages.sort((a, b) => {
     const priorityDiff = sourcePriority[a.source] - sourcePriority[b.source];
     if (priorityDiff !== 0) return priorityDiff;
     return a.name.localeCompare(b.name, "tr");
