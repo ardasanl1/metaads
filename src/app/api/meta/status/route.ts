@@ -3,7 +3,6 @@ import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
 import {
   getMetaConnectionById,
   listMetaConnections,
-  updateMetaBusinessId,
   updateMetaUserName,
 } from "@/lib/db";
 import { ensureMetaBusinessId, resolveTokenIdentity } from "@/lib/meta";
@@ -31,13 +30,12 @@ async function enrichConnections(
       if (!connection.metaBusinessId?.trim()) {
         const businessId = await ensureMetaBusinessId(connection.id);
         if (businessId) {
-          next = { ...next, metaBusinessId: businessId };
-        } else {
-          const identity = await resolveTokenIdentity(full.accessToken);
-          if (identity.metaBusinessId?.trim()) {
-            await updateMetaBusinessId(connection.id, identity.metaBusinessId);
-            next = { ...next, metaBusinessId: identity.metaBusinessId };
-          }
+          const refreshed = await getMetaConnectionById(connection.id);
+          next = {
+            ...next,
+            metaBusinessId: refreshed?.metaBusinessId ?? businessId,
+            metaBusinessName: refreshed?.metaBusinessName ?? next.metaBusinessName,
+          };
         }
       }
 

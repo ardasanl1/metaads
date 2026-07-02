@@ -35,7 +35,7 @@ type MetaAccountContextValue = {
   selectedAdAccountId: string | null;
   selectedAdAccountName: string | null;
   selectAdAccountById: (adAccountId: string) => Promise<void>;
-  addAdAccountManually: (adAccountId: string) => Promise<void>;
+  addAdAccountManually: (adAccountId: string, businessId?: string) => Promise<void>;
   accountKey: string;
   loading: boolean;
   error: string | null;
@@ -245,13 +245,32 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
   );
 
   const addAdAccountManually = useCallback(
-    async (rawAdAccountId: string) => {
+    async (rawAdAccountId: string, businessId?: string) => {
       if (!activeConnectionId) return;
       setLoading(true);
       setError(null);
       try {
-        const result = await addLinkedAdAccount(rawAdAccountId, activeConnectionId);
-        setAdAccounts(result.adAccounts);
+        const result = await addLinkedAdAccount(rawAdAccountId, activeConnectionId, businessId);
+        if (result.needsBusinessSelection) {
+          const error = new Error("Business seçimi gerekli") as Error & {
+            needsBusinessSelection: boolean;
+            matches: typeof result.matches;
+            adAccountId: string;
+          };
+          error.needsBusinessSelection = true;
+          error.matches = result.matches;
+          error.adAccountId = rawAdAccountId;
+          throw error;
+        }
+
+        setAdAccounts(
+          result.adAccounts.map((account) => ({
+            id: account.id,
+            accountId: account.accountId,
+            name: account.name,
+            connectionId: account.connectionId,
+          })),
+        );
         applyAdAccountSelection(
           activeConnectionId,
           result.selectedAdAccountId,
@@ -262,12 +281,15 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
             item.id === activeConnectionId
               ? {
                   ...item,
+                  metaBusinessId: result.business?.businessId ?? item.metaBusinessId,
+                  metaBusinessName: result.business?.businessName ?? item.metaBusinessName,
                   linkedAdAccounts: result.adAccounts.map((account) => ({
                     id: account.id,
                     accountId: account.accountId,
                     name: account.name,
-                    addedAt: item.linkedAdAccounts.find((linked) => linked.id === account.id)
-                      ?.addedAt ?? new Date().toISOString(),
+                    addedAt:
+                      item.linkedAdAccounts.find((linked) => linked.id === account.id)?.addedAt ??
+                      new Date().toISOString(),
                   })),
                   selectedAdAccountId: result.selectedAdAccountId,
                   selectedAdAccountName: result.selectedAdAccountName,
@@ -276,6 +298,12 @@ export function MetaAccountProvider({ children }: { children: ReactNode }) {
           ),
         );
       } catch (err) {
+        if (
+          err instanceof Error &&
+          (err as Error & { needsBusinessSelection?: boolean }).needsBusinessSelection
+        ) {
+          throw err;
+        }
         const message = err instanceof Error ? err.message : "Reklam hesabı eklenemedi";
         setError(message);
         throw err;

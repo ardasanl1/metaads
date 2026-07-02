@@ -20,6 +20,7 @@ export type MetaConnectionSummary = {
   metaUserId: string | null;
   metaUserName: string | null;
   metaBusinessId: string | null;
+  metaBusinessName: string | null;
   selectedAdAccountId: string;
   selectedAdAccountName: string;
   linkedAdAccounts: LinkedAdAccount[];

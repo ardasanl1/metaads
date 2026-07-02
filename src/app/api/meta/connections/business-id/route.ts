@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
-import { getMetaConnectionById, updateMetaBusinessId } from "@/lib/db";
+import { getMetaConnectionById, updateMetaBusinessProfile } from "@/lib/db";
 import { handleApiError, jsonError } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
@@ -28,7 +28,10 @@ export async function POST(request: NextRequest) {
     const connection = await getMetaConnectionById(connectionId);
     if (!connection) return jsonError("Bağlantı bulunamadı", 404);
 
-    await updateMetaBusinessId(connectionId, metaBusinessId);
+    await updateMetaBusinessProfile(connectionId, {
+      metaBusinessId,
+      metaBusinessName: null,
+    });
 
     return NextResponse.json({ ok: true, metaBusinessId });
   } catch (error) {

@@ -2,13 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
 import {
   addLinkedAdAccount,
-  getActiveMetaConnection,
   getMetaConnectionById,
-  listLinkedAdAccounts,
+  updateMetaBusinessProfile,
 } from "@/lib/db";
-import { MetaApiError, ensureMetaBusinessId, verifyMetaConnection } from "@/lib/meta";
+import { MetaApiError, verifyMetaConnection } from "@/lib/meta";
+import {
+  discoverBusinessForAdAccount,
+  pickPreferredBusinessMatch,
+} from "@/lib/meta-business-discovery";
 import { handleApiError, jsonError } from "@/lib/api-utils";
 import { normalizeAdAccountId } from "@/utils/ad-account";
+import type { BusinessDiscoveryMatch } from "@/types/meta/business-discovery";
+
+function pickMatch(
+  matches: BusinessDiscoveryMatch[],
+  businessId?: string,
+): BusinessDiscoveryMatch | null {
+  if (businessId?.trim()) {
+    return matches.find((match) => match.businessId === businessId.trim()) ?? null;
+  }
+  return pickPreferredBusinessMatch(matches);
+}
 
 export async function GET(request: NextRequest) {
   if (!isAuthenticatedRequest(request)) {
@@ -16,17 +30,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const connectionId = request.nextUrl.searchParams.get("connectionId");
+    const connectionId = request.nextUrl.searchParams.get("connectionId")?.trim();
+    if (!connectionId) return jsonError("connectionId gerekli", 400);
 
-    const connection = connectionId
-      ? await getMetaConnectionById(connectionId)
-      : await getActiveMetaConnection();
+    const connection = await getMetaConnectionById(connectionId);
+    if (!connection) return jsonError("Meta hesabı bağlı değil", 400);
 
-    if (!connection) {
-      return jsonError("Meta hesabı bağlı değil", 400);
-    }
-
-    const linked = await listLinkedAdAccounts(connection.id);
+    const linked = connection.linkedAdAccounts;
 
     return NextResponse.json({
       adAccounts: linked.map((account) => ({
@@ -50,28 +60,71 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       adAccountId?: string;
       connectionId?: string;
+      businessId?: string;
     };
 
     const adAccountId =
       typeof body.adAccountId === "string" ? normalizeAdAccountId(body.adAccountId.trim()) : "";
     const connectionId =
-      typeof body.connectionId === "string" && body.connectionId.trim()
-        ? body.connectionId.trim()
-        : undefined;
+      typeof body.connectionId === "string" ? body.connectionId.trim() : "";
+    const requestedBusinessId =
+      typeof body.businessId === "string" ? body.businessId.trim() : "";
 
     if (!adAccountId) {
       return jsonError("Reklam hesabı ID gerekli (ör. act_123456789)", 400);
     }
+    if (!connectionId) {
+      return jsonError("connectionId gerekli", 400);
+    }
 
-    const connection = connectionId
-      ? await getMetaConnectionById(connectionId)
-      : await getActiveMetaConnection();
-
+    const connection = await getMetaConnectionById(connectionId);
     if (!connection) {
-      return jsonError("Meta hesabı bağlı değil", 400);
+      return jsonError("Seçili bağlantı bulunamadı", 404);
     }
 
     const verified = await verifyMetaConnection(connection.accessToken, adAccountId);
+
+    const discovery = await discoverBusinessForAdAccount({
+      connectionId: connection.id,
+      adAccountId: verified.adAccountId,
+    });
+
+    if (discovery.matches.length > 1 && !requestedBusinessId) {
+      return NextResponse.json({
+        ok: true,
+        needsBusinessSelection: true,
+        normalizedAdAccountId: discovery.normalizedAdAccountId,
+        matches: discovery.matches,
+        tokenUser: discovery.tokenUser,
+        permissions: discovery.permissions,
+        businessesFound: discovery.businessesFound,
+        errors: discovery.errors,
+      });
+    }
+
+    const selectedMatch = pickMatch(discovery.matches, requestedBusinessId);
+
+    if (!selectedMatch) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Reklam hesabı için Business eşleşmesi bulunamadı",
+          normalizedAdAccountId: discovery.normalizedAdAccountId,
+          tokenUser: discovery.tokenUser,
+          permissions: discovery.permissions,
+          businessesFound: discovery.businessesFound,
+          businesses: discovery.businesses,
+          matchedBusinesses: discovery.matchedBusinesses,
+          errors: discovery.errors,
+        },
+        { status: 404 },
+      );
+    }
+
+    await updateMetaBusinessProfile(connection.id, {
+      metaBusinessId: selectedMatch.businessId,
+      metaBusinessName: selectedMatch.businessName,
+    });
 
     const result = await addLinkedAdAccount({
       connectionId: connection.id,
@@ -80,11 +133,15 @@ export async function POST(request: NextRequest) {
       select: true,
     });
 
-    await ensureMetaBusinessId(connection.id);
-
     return NextResponse.json({
       ok: true,
+      needsBusinessSelection: false,
       connectionId: connection.id,
+      business: {
+        businessId: selectedMatch.businessId,
+        businessName: selectedMatch.businessName,
+        relationship: selectedMatch.relationship,
+      },
       adAccounts: result.linkedAdAccounts.map((account) => ({
         id: account.id,
         accountId: account.accountId,
@@ -93,6 +150,12 @@ export async function POST(request: NextRequest) {
       })),
       selectedAdAccountId: result.selectedAdAccountId,
       selectedAdAccountName: result.selectedAdAccountName,
+      discovery: {
+        tokenUser: discovery.tokenUser,
+        permissions: discovery.permissions,
+        businessesFound: discovery.businessesFound,
+        errors: discovery.errors,
+      },
     });
   } catch (error) {
     if (error instanceof MetaApiError) {

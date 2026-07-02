@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import IntegrationsContent from "./IntegrationsContent";
 
-export default function IntegrationsRedirectPage() {
-  redirect("/settings");
+export default function IntegrationsPage() {
+  return <IntegrationsContent />;
 }

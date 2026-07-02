@@ -1,5 +1,9 @@
 import "server-only";
-import { getMetaConnection, getMetaConnectionById, listLinkedAdAccounts, updateMetaBusinessId } from "./db";
+import { getMetaConnection, getMetaConnectionById, listLinkedAdAccounts, updateMetaBusinessProfile } from "./db";
+import {
+  discoverBusinessForAdAccount,
+  pickPreferredBusinessMatch,
+} from "./meta-business-discovery";
 import { extractMetaErrorMessage } from "./meta-errors";
 import {
   normalizeAdAccountId,
@@ -162,31 +166,12 @@ export async function resolveTokenIdentity(
     const businesses = await getBusinesses({ token: accessToken });
     if (businesses.length > 0) {
       metaBusinessId = businesses[0].id;
-      metaUserName = businesses[0].name.trim();
     }
   } catch {
-    // me.name veya mevcut değer korunur
+    // me.name korunur
   }
 
   return { metaUserId, metaUserName, metaBusinessId };
-}
-
-export async function getBusinessIdFromAdAccount(
-  adAccountId: string,
-  options?: { connectionId?: string; token?: string },
-): Promise<string | null> {
-  const accountPath = normalizeAdAccountId(adAccountId);
-  if (!accountPath) return null;
-
-  try {
-    const result = await metaRequest<{ business?: { id?: string } }>(
-      `${accountPath}?fields=business{id}`,
-      options,
-    );
-    return result.business?.id?.trim() ?? null;
-  } catch {
-    return null;
-  }
 }
 
 export async function ensureMetaBusinessId(connectionId?: string): Promise<string | null> {
@@ -206,12 +191,17 @@ export async function ensureMetaBusinessId(connectionId?: string): Promise<strin
   }
 
   for (const adAccountId of adAccountCandidates) {
-    const fromAccount = await getBusinessIdFromAdAccount(adAccountId, {
+    const discovery = await discoverBusinessForAdAccount({
       connectionId: connection.id,
+      adAccountId,
     });
-    if (fromAccount) {
-      await updateMetaBusinessId(connection.id, fromAccount);
-      return fromAccount;
+    const match = pickPreferredBusinessMatch(discovery.matches);
+    if (match) {
+      await updateMetaBusinessProfile(connection.id, {
+        metaBusinessId: match.businessId,
+        metaBusinessName: match.businessName,
+      });
+      return match.businessId;
     }
   }
 
@@ -219,7 +209,10 @@ export async function ensureMetaBusinessId(connectionId?: string): Promise<strin
     const businesses = await getBusinesses({ token: connection.accessToken });
     const businessId = businesses[0]?.id?.trim() ?? null;
     if (businessId) {
-      await updateMetaBusinessId(connection.id, businessId);
+      await updateMetaBusinessProfile(connection.id, {
+        metaBusinessId: businessId,
+        metaBusinessName: businesses[0]?.name?.trim() || null,
+      });
     }
     return businessId;
   } catch {

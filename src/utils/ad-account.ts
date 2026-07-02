@@ -71,12 +71,16 @@ export function formatAdAccountLabel(
 }
 
 export function getFirmDisplayName(connection: {
+  metaBusinessName?: string | null;
   metaUserName?: string | null;
   metaUserId?: string | null;
   displayName?: string;
 }): string {
   if (connection.displayName?.trim()) {
     return connection.displayName.trim();
+  }
+  if (connection.metaBusinessName?.trim()) {
+    return connection.metaBusinessName.trim();
   }
   if (connection.metaUserName?.trim()) {
     return connection.metaUserName.trim();

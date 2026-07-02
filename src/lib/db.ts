@@ -13,6 +13,7 @@ type StoredConnection = {
   metaUserId: string | null;
   metaUserName: string | null;
   metaBusinessId: string | null;
+  metaBusinessName: string | null;
   selectedAdAccountId: string;
   selectedAdAccountName: string;
   linkedAdAccountsJson: string;
@@ -27,6 +28,7 @@ export type MetaConnection = {
   metaUserId: string | null;
   metaUserName: string | null;
   metaBusinessId: string | null;
+  metaBusinessName: string | null;
   selectedAdAccountId: string;
   selectedAdAccountName: string;
   linkedAdAccounts: LinkedAdAccount[];
@@ -43,6 +45,7 @@ type MetaConnectionRow = {
   meta_user_id: string | null;
   meta_user_name: string | null;
   meta_business_id: string | null;
+  meta_business_name: string | null;
   selected_ad_account_id: string;
   selected_ad_account_name: string;
   linked_ad_accounts: string | null;
@@ -150,6 +153,10 @@ async function ensureTable(): Promise<void> {
     ALTER TABLE meta_connections
     ADD COLUMN IF NOT EXISTS meta_business_id TEXT
   `;
+  await sql`
+    ALTER TABLE meta_connections
+    ADD COLUMN IF NOT EXISTS meta_business_name TEXT
+  `;
 
   tableReady = true;
 }
@@ -173,6 +180,7 @@ function rowToStored(row: MetaConnectionRow): StoredConnection {
     metaUserId: row.meta_user_id,
     metaUserName: row.meta_user_name,
     metaBusinessId: row.meta_business_id,
+    metaBusinessName: row.meta_business_name,
     selectedAdAccountId: row.selected_ad_account_id,
     selectedAdAccountName: row.selected_ad_account_name,
     linkedAdAccountsJson: row.linked_ad_accounts ?? "[]",
@@ -190,6 +198,7 @@ function toMetaConnection(stored: StoredConnection): MetaConnection {
     metaUserId: stored.metaUserId,
     metaUserName: stored.metaUserName,
     metaBusinessId: stored.metaBusinessId,
+    metaBusinessName: stored.metaBusinessName,
     selectedAdAccountId: stored.selectedAdAccountId
       ? normalizeAdAccountId(stored.selectedAdAccountId)
       : "",
@@ -222,6 +231,7 @@ function migrateLegacyStored(legacy: {
     metaUserId: legacy.metaUserId,
     metaUserName: null,
     metaBusinessId: null,
+    metaBusinessName: null,
     selectedAdAccountId: legacy.selectedAdAccountId,
     selectedAdAccountName: legacy.selectedAdAccountName,
     linkedAdAccountsJson: legacy.selectedAdAccountId
@@ -244,7 +254,7 @@ async function readAllFromPostgres(): Promise<StoredConnection[]> {
   await ensureTable();
   const sql = getSql();
   const rows = await sql`
-    SELECT id, access_token_encrypted, meta_user_id, meta_user_name, meta_business_id,
+    SELECT id, access_token_encrypted, meta_user_id, meta_user_name, meta_business_id, meta_business_name,
            selected_ad_account_id, selected_ad_account_name, linked_ad_accounts,
            is_active, created_at, updated_at
     FROM meta_connections
@@ -276,7 +286,7 @@ async function writeAllToPostgres(connections: StoredConnection[]): Promise<void
   for (const connection of connections) {
     await sql`
       INSERT INTO meta_connections (
-        id, access_token_encrypted, meta_user_id, meta_user_name, meta_business_id,
+        id, access_token_encrypted, meta_user_id, meta_user_name, meta_business_id, meta_business_name,
         selected_ad_account_id, selected_ad_account_name, linked_ad_accounts,
         is_active, created_at, updated_at
       ) VALUES (
@@ -285,6 +295,7 @@ async function writeAllToPostgres(connections: StoredConnection[]): Promise<void
         ${connection.metaUserId},
         ${connection.metaUserName},
         ${connection.metaBusinessId},
+        ${connection.metaBusinessName},
         ${connection.selectedAdAccountId},
         ${connection.selectedAdAccountName},
         ${connection.linkedAdAccountsJson},
@@ -304,6 +315,7 @@ function readAllFromFile(): StoredConnection[] {
       return (parsed.connections ?? []).map((item) => ({
         ...item,
         metaBusinessId: item.metaBusinessId ?? null,
+        metaBusinessName: item.metaBusinessName ?? null,
         linkedAdAccountsJson: item.linkedAdAccountsJson ?? "[]",
       }));
     } catch {
@@ -402,6 +414,7 @@ export async function saveMetaConnection(input: {
   metaUserId: string;
   metaUserName?: string | null;
   metaBusinessId?: string | null;
+  metaBusinessName?: string | null;
   adAccountId?: string;
   adAccountName?: string;
 }): Promise<MetaConnectionSummary> {
@@ -416,6 +429,7 @@ export async function saveMetaConnection(input: {
     metaUserId: input.metaUserId,
     metaUserName: input.metaUserName ?? existing?.metaUserName ?? null,
     metaBusinessId: input.metaBusinessId ?? existing?.metaBusinessId ?? null,
+    metaBusinessName: input.metaBusinessName ?? existing?.metaBusinessName ?? null,
     selectedAdAccountId: input.adAccountId
       ? normalizeAdAccountId(input.adAccountId)
       : existing?.selectedAdAccountId ?? "",
@@ -465,11 +479,25 @@ export async function updateMetaBusinessId(
   connectionId: string,
   metaBusinessId: string,
 ): Promise<void> {
+  await updateMetaBusinessProfile(connectionId, {
+    metaBusinessId: metaBusinessId.trim(),
+  });
+}
+
+export async function updateMetaBusinessProfile(
+  connectionId: string,
+  input: { metaBusinessId: string; metaBusinessName?: string | null },
+): Promise<void> {
   const connections = await readAllStored();
   const now = new Date().toISOString();
   const next = connections.map((item) =>
     item.id === connectionId
-      ? { ...item, metaBusinessId: metaBusinessId.trim(), updatedAt: now }
+      ? {
+          ...item,
+          metaBusinessId: input.metaBusinessId.trim(),
+          metaBusinessName: input.metaBusinessName?.trim() || null,
+          updatedAt: now,
+        }
       : item,
   );
   await writeAllStored(next);

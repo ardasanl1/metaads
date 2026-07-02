@@ -57,6 +57,13 @@ export async function fetchMetaStatus(): Promise<MetaConnectionStatus> {
   return apiFetch<MetaConnectionStatus>("/api/meta/status");
 }
 
+export async function fetchBusinessDiscovery(params: {
+  connectionId: string;
+  adAccountId: string;
+}): Promise<import("@/types/meta/business-discovery").BusinessDiscoveryResult> {
+  return apiFetch(`/api/meta/business-discovery${buildQuery(params)}`);
+}
+
 export async function fetchLinkedAdAccounts(connectionId: string): Promise<AdAccount[]> {
   const data = await apiFetch<{ adAccounts: AdAccount[] }>(
     `/api/meta/ad-accounts${buildQuery({ connectionId })}`,
@@ -64,19 +71,53 @@ export async function fetchLinkedAdAccounts(connectionId: string): Promise<AdAcc
   return data.adAccounts;
 }
 
+import type { BusinessDiscoveryMatch } from "@/types/meta/business-discovery";
+
+export type AddLinkedAdAccountResult =
+  | {
+      ok: true;
+      needsBusinessSelection: false;
+      connectionId: string;
+      business?: {
+        businessId: string;
+        businessName: string;
+        relationship: string;
+      };
+      adAccounts: Array<{
+        id: string;
+        accountId: string;
+        name: string;
+        connectionId: string;
+      }>;
+      selectedAdAccountId: string;
+      selectedAdAccountName: string;
+    }
+  | {
+      ok: true;
+      needsBusinessSelection: true;
+      normalizedAdAccountId: string;
+      matches: BusinessDiscoveryMatch[];
+      tokenUser: { id: string; name: string };
+      permissions: { granted: string[]; declined: string[] };
+      businessesFound: number;
+      errors: Array<{ step: string; message: string }>;
+    };
+
 export async function addLinkedAdAccount(
   adAccountId: string,
   connectionId: string,
-): Promise<{
-  adAccounts: AdAccount[];
-  selectedAdAccountId: string;
-  selectedAdAccountName: string;
-}> {
-  return apiFetch("/api/meta/ad-accounts", {
+  businessId?: string,
+): Promise<AddLinkedAdAccountResult> {
+  const response = await fetch("/api/meta/ad-accounts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ adAccountId, connectionId }),
+    body: JSON.stringify({ adAccountId, connectionId, businessId }),
   });
+  const data = (await response.json()) as AddLinkedAdAccountResult & { error?: string };
+  if (!response.ok) {
+    throw new Error(data.error ?? "Reklam hesabı eklenemedi");
+  }
+  return data;
 }
 
 export async function activateConnection(connectionId: string): Promise<MetaConnectionSummary> {
