@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     const cityName = request.nextUrl.searchParams.get("cityName")?.trim() ?? "";
     const regionName = request.nextUrl.searchParams.get("regionName")?.trim() ?? "";
     const displayName = request.nextUrl.searchParams.get("displayName")?.trim() ?? "";
+    const adAccountId = request.nextUrl.searchParams.get("adAccountId")?.trim() ?? undefined;
 
     if (resolve) {
       if (!countryCode) return jsonError("countryCode gerekli", 400);
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
         displayName: displayName || undefined,
         countryCode,
         connectionId,
+        adAccountId,
       });
 
       const match = resolved.city ?? resolved.region ?? null;

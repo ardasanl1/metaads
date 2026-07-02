@@ -132,7 +132,7 @@ export function WebsiteSalesWizard() {
       .finally(() => setPagesLoading(false));
 
     setPixelsLoading(true);
-    fetchPixels()
+    fetchPixels({ connectionId: activeConnectionId ?? undefined })
       .then((items) => {
         setPixels(items);
         if (items.length === 0) {
@@ -209,6 +209,7 @@ export function WebsiteSalesWizard() {
 
       const resolved = await resolveMetaGeoLocation({
         connectionId: activeConnectionId ?? undefined,
+        adAccountId: selectedAdAccountId ?? undefined,
         countryCode: sel.countryCode,
         cityName: sel.cityName,
         regionName: sel.regionName,
@@ -222,7 +223,11 @@ export function WebsiteSalesWizard() {
         setField("metaCity", null);
         setField("metaRegion", resolved.region);
       } else {
-        setLocationError(resolved.error ?? "Şehir Meta hedefleme konumuna eşlenemedi");
+        setField("metaCity", null);
+        setField("metaRegion", null);
+        setLocationError(
+          `${resolved.error ?? "Şehir Meta hedefleme konumuna eşlenemedi"} — ülke hedeflemesi (${sel.countryCode.toUpperCase()}) kullanılacak.`,
+        );
       }
     } catch (e) {
       setLocationError(e instanceof Error ? e.message : "Şehir seçilemedi");
@@ -496,46 +501,33 @@ export function WebsiteSalesWizard() {
               {pagesLoading ? (
                 <p className="text-sm text-muted-foreground">Page listesi yükleniyor...</p>
               ) : pages.length === 0 ? (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-                    Hiç Facebook Page bulunamadı.
-                    {pagesHint ? ` ${pagesHint}` : " Token'da Page izinlerini ve reklam hesabı erişimini kontrol edin."}
-                    <div className="mt-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setPagesLoading(true);
-                          setPagesHint("");
-                          fetchPages({
-                            connectionId: activeConnectionId ?? undefined,
-                            adAccountId: selectedAdAccountId ?? undefined,
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Hiç Facebook Page bulunamadı.
+                  {pagesHint ? ` ${pagesHint}` : " İşletme token'ı ve Page izinlerini kontrol edin."}
+                  <div className="mt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setPagesLoading(true);
+                        setPagesHint("");
+                        fetchPages({
+                          connectionId: activeConnectionId ?? undefined,
+                          adAccountId: selectedAdAccountId ?? undefined,
+                        })
+                          .then(({ pages: nextPages, diagnostics }) => {
+                            setPages(nextPages);
+                            setPagesHint(diagnostics?.hint ?? "");
                           })
-                            .then(({ pages: nextPages, diagnostics }) => {
-                              setPages(nextPages);
-                              setPagesHint(diagnostics?.hint ?? "");
-                            })
-                            .catch((e) =>
-                              toast.error(e instanceof Error ? e.message : "Page listesi alınamadı"),
-                            )
-                            .finally(() => setPagesLoading(false));
-                        }}
-                      >
-                        Tekrar Dene
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Facebook Page ID (manuel)</Label>
-                    <Input
-                      value={draft.pageId}
-                      onChange={(e) => setField("pageId", e.target.value.trim())}
-                      placeholder="Örn: 123456789012345"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Meta Business Suite veya Ads Manager&apos;dan Page ID&apos;nizi kopyalayıp yapıştırın.
-                    </p>
+                          .catch((e) =>
+                            toast.error(e instanceof Error ? e.message : "Page listesi alınamadı"),
+                          )
+                          .finally(() => setPagesLoading(false));
+                      }}
+                    >
+                      Tekrar Dene
+                    </Button>
                   </div>
                 </div>
               ) : (

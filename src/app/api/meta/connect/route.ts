@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
       accessToken,
       metaUserId: verified.metaUserId,
       metaUserName: verified.metaUserName,
+      metaBusinessId: verified.metaBusinessId,
       adAccountId: normalizedAccountId,
       adAccountName: accountName,
     });
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
       connectionId: saved.id,
       metaUserId: saved.metaUserId,
       metaUserName: saved.metaUserName,
+      metaBusinessId: saved.metaBusinessId,
       selectedAdAccountId: saved.selectedAdAccountId || null,
       selectedAdAccountName: saved.selectedAdAccountName || null,
     });

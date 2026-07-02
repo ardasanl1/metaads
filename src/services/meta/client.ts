@@ -231,8 +231,10 @@ export async function fetchInstagramAccounts(pageId: string): Promise<MetaInstag
   return data.accounts;
 }
 
-export async function fetchPixels(): Promise<MetaPixel[]> {
-  const data = await apiFetch<{ pixels: MetaPixel[] }>("/api/meta/pixels");
+export async function fetchPixels(params?: { connectionId?: string }): Promise<MetaPixel[]> {
+  const data = await apiFetch<{ pixels: MetaPixel[] }>(
+    `/api/meta/pixels${buildQuery({ connectionId: params?.connectionId })}`,
+  );
   return data.pixels;
 }
 
@@ -253,6 +255,7 @@ export async function resolveMetaGeoLocation(params: {
   regionName?: string;
   displayName?: string;
   query?: string;
+  adAccountId?: string;
 }): Promise<{
   city: MetaTargetingLocation | null;
   region: MetaTargetingLocation | null;
@@ -273,6 +276,7 @@ export async function resolveMetaGeoLocation(params: {
       regionName: params.regionName,
       displayName: params.displayName,
       query: params.query,
+      adAccountId: params.adAccountId,
     })}`,
   );
   return data;

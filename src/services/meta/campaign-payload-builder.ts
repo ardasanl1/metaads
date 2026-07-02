@@ -43,12 +43,9 @@ export type BuildAdPayloadResult = {
 
 export function buildTargetingFromDraft(draft: WebsiteSalesDraft): unknown {
   const genders =
-    draft.gender === "ALL" ? undefined : draft.gender === "MALE" ? [1] : [2]; // Meta: 1 male, 2 female
+    draft.gender === "ALL" ? undefined : draft.gender === "MALE" ? [1] : [2];
 
   const targeting: Record<string, unknown> = {
-    geo_locations: {
-      countries: [draft.metaCountryCode ?? draft.country?.countryCode?.toUpperCase() ?? "TR"],
-    },
     age_min: draft.ageMin,
     age_max: draft.ageMax,
   };
@@ -56,14 +53,12 @@ export function buildTargetingFromDraft(draft: WebsiteSalesDraft): unknown {
   if (genders) targeting.genders = genders;
 
   if (draft.metaCity?.key) {
-    targeting.geo_locations = {
-      ...((targeting.geo_locations as Record<string, unknown>) ?? {}),
-      cities: [{ key: draft.metaCity.key }],
-    };
+    targeting.geo_locations = { cities: [{ key: draft.metaCity.key }] };
   } else if (draft.metaRegion?.key) {
+    targeting.geo_locations = { regions: [{ key: draft.metaRegion.key }] };
+  } else {
     targeting.geo_locations = {
-      ...((targeting.geo_locations as Record<string, unknown>) ?? {}),
-      regions: [{ key: draft.metaRegion.key }],
+      countries: [draft.metaCountryCode ?? draft.country?.countryCode?.toUpperCase() ?? "TR"],
     };
   }
   return targeting;
@@ -74,23 +69,18 @@ export function buildTargetingFromSubmit(draft: WebsiteSalesSubmit): unknown {
     draft.gender === "ALL" ? undefined : draft.gender === "MALE" ? [1] : [2];
 
   const targeting: Record<string, unknown> = {
-    geo_locations: {
-      countries: [draft.metaCountryCode ?? draft.country?.countryCode?.toUpperCase() ?? "TR"],
-    },
     age_min: draft.ageMin,
     age_max: draft.ageMax,
   };
 
   if (genders) targeting.genders = genders;
   if (draft.metaCity?.key) {
-    targeting.geo_locations = {
-      ...((targeting.geo_locations as Record<string, unknown>) ?? {}),
-      cities: [{ key: draft.metaCity.key }],
-    };
+    targeting.geo_locations = { cities: [{ key: draft.metaCity.key }] };
   } else if (draft.metaRegion?.key) {
+    targeting.geo_locations = { regions: [{ key: draft.metaRegion.key }] };
+  } else {
     targeting.geo_locations = {
-      ...((targeting.geo_locations as Record<string, unknown>) ?? {}),
-      regions: [{ key: draft.metaRegion.key }],
+      countries: [draft.metaCountryCode ?? draft.country?.countryCode?.toUpperCase() ?? "TR"],
     };
   }
   return targeting;

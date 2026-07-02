@@ -1,5 +1,5 @@
 import "server-only";
-import { getMetaConnection, getMetaConnectionById } from "./db";
+import { getMetaConnection, getMetaConnectionById, updateMetaBusinessId } from "./db";
 import { extractMetaErrorMessage } from "./meta-errors";
 import {
   normalizeAdAccountId,
@@ -136,9 +136,10 @@ export async function verifyMetaToken(
 /** Token sahibini ve bağlı işletme adını çözer. */
 export async function resolveTokenIdentity(
   accessToken: string,
-): Promise<{ metaUserId: string | null; metaUserName: string | null }> {
+): Promise<{ metaUserId: string | null; metaUserName: string | null; metaBusinessId: string | null }> {
   let metaUserId: string | null = null;
   let metaUserName: string | null = null;
+  let metaBusinessId: string | null = null;
 
   try {
     const me = await metaRequest<{ id: string; name?: string }>("me?fields=id,name", {
@@ -147,19 +148,39 @@ export async function resolveTokenIdentity(
     metaUserId = me.id;
     metaUserName = me.name?.trim() || null;
   } catch {
-    return { metaUserId: null, metaUserName: null };
+    return { metaUserId: null, metaUserName: null, metaBusinessId: null };
   }
 
   try {
     const businesses = await getBusinesses({ token: accessToken });
     if (businesses.length > 0) {
+      metaBusinessId = businesses[0].id;
       metaUserName = businesses[0].name.trim();
     }
   } catch {
     // me.name veya mevcut değer korunur
   }
 
-  return { metaUserId, metaUserName };
+  return { metaUserId, metaUserName, metaBusinessId };
+}
+
+export async function ensureMetaBusinessId(connectionId?: string): Promise<string | null> {
+  const connection = connectionId
+    ? await getMetaConnectionById(connectionId)
+    : await getMetaConnection();
+  if (!connection) return null;
+  if (connection.metaBusinessId?.trim()) return connection.metaBusinessId.trim();
+
+  try {
+    const businesses = await getBusinesses({ token: connection.accessToken });
+    const businessId = businesses[0]?.id?.trim() ?? null;
+    if (businessId) {
+      await updateMetaBusinessId(connection.id, businessId);
+    }
+    return businessId;
+  } catch {
+    return null;
+  }
 }
 
 export type Campaign = {
@@ -594,6 +615,7 @@ async function getGrantedPermissions(connectionId?: string): Promise<string[]> {
 export async function getFacebookPages(options?: {
   connectionId?: string;
   adAccountId?: string;
+  businessId?: string;
 }): Promise<MetaPagesResult> {
   const collected: MetaPage[] = [];
   const diagnostics: MetaPagesDiagnostics = {
@@ -607,85 +629,57 @@ export async function getFacebookPages(options?: {
   const connection = options?.connectionId
     ? await getMetaConnectionById(options.connectionId)
     : await getMetaConnection();
-  const metaUserId = connection?.metaUserId?.trim() || "";
+  const businessId =
+    options?.businessId?.trim() ||
+    connection?.metaBusinessId?.trim() ||
+    (connection ? await ensureMetaBusinessId(connection.id) : null) ||
+    "";
 
   const granted = await getGrantedPermissions(options?.connectionId);
   diagnostics.missingPermissions = PAGE_LIST_PERMISSIONS.filter(
     (permission) => !granted.includes(permission),
   );
 
-  try {
-    const result = await metaRequest<{ data?: MetaPage[] }>(
-      "me/accounts?fields=id,name,picture{url}&limit=200",
-      { connectionId: options?.connectionId },
-    );
-    if (result.data) {
-      collected.push(...result.data);
-      diagnostics.userAccountsCount = result.data.length;
-    }
-  } catch (error) {
-    diagnostics.userAccountsError =
-      error instanceof Error ? error.message : "me/accounts isteği başarısız";
-  }
+  const token = await getStoredAccessToken(options?.connectionId);
 
-  if (metaUserId) {
+  if (businessId) {
     try {
-      const userAccounts = await metaRequest<{ data?: MetaPage[] }>(
-        `${metaUserId}/accounts?fields=id,name,picture{url}&limit=200`,
+      const owned = await fetchPaged<MetaPage>(
+        `${businessId}/owned_pages?fields=id,name,picture{url}&limit=200`,
+        200,
+        token,
+      );
+      collected.push(...owned);
+      diagnostics.businessOwnedCount += owned.length;
+    } catch (error) {
+      diagnostics.userAccountsError =
+        error instanceof Error ? error.message : "owned_pages isteği başarısız";
+    }
+    try {
+      const client = await fetchPaged<MetaPage>(
+        `${businessId}/client_pages?fields=id,name,picture{url}&limit=200`,
+        200,
+        token,
+      );
+      collected.push(...client);
+      diagnostics.businessClientCount += client.length;
+    } catch {
+      // ignore
+    }
+  } else {
+    try {
+      const result = await metaRequest<{ data?: MetaPage[] }>(
+        "me/accounts?fields=id,name,picture{url}&limit=200",
         { connectionId: options?.connectionId },
       );
-      if (userAccounts.data) {
-        collected.push(...userAccounts.data);
-        diagnostics.userAccountsCount += userAccounts.data.length;
+      if (result.data) {
+        collected.push(...result.data);
+        diagnostics.userAccountsCount = result.data.length;
       }
     } catch (error) {
-      if (!diagnostics.userAccountsError) {
-        diagnostics.userAccountsError =
-          error instanceof Error ? error.message : "user/accounts isteği başarısız";
-      }
+      diagnostics.userAccountsError =
+        error instanceof Error ? error.message : "me/accounts isteği başarısız";
     }
-  }
-
-  try {
-    const token = await getStoredAccessToken(options?.connectionId);
-    const businesses = await getBusinesses({ token });
-    for (const b of businesses) {
-      try {
-        const owned = await fetchPaged<MetaPage>(
-          `${b.id}/owned_pages?fields=id,name,picture{url}&limit=200`,
-          200,
-          token,
-        );
-        collected.push(...owned);
-        diagnostics.businessOwnedCount += owned.length;
-      } catch {
-        // ignore per-business failures
-      }
-      try {
-        const client = await fetchPaged<MetaPage>(
-          `${b.id}/client_pages?fields=id,name,picture{url}&limit=200`,
-          200,
-          token,
-        );
-        collected.push(...client);
-        diagnostics.businessClientCount += client.length;
-      } catch {
-        // ignore per-business failures
-      }
-      try {
-        const pages = await fetchPaged<MetaPage>(
-          `${b.id}/pages?fields=id,name,picture{url}&limit=200`,
-          200,
-          token,
-        );
-        collected.push(...pages);
-        diagnostics.businessOwnedCount += pages.length;
-      } catch {
-        // ignore per-business failures
-      }
-    }
-  } catch {
-    // ignore business list failures
   }
 
   const accountPath = options?.adAccountId ? normalizeAdAccountId(options.adAccountId) : "";
@@ -694,7 +688,7 @@ export async function getFacebookPages(options?: {
       const promoted = await fetchPaged<MetaPage>(
         `${accountPath}/promote_pages?fields=id,name,picture{url}&limit=200`,
         200,
-        await getStoredAccessToken(options?.connectionId),
+        token,
       );
       collected.push(...promoted);
       diagnostics.adAccountCount = promoted.length;
@@ -714,18 +708,17 @@ export async function getFacebookPages(options?: {
     const missingPagePerms = ["pages_show_list", "pages_manage_ads"].filter((permission) =>
       diagnostics.missingPermissions.includes(permission),
     );
-    if (missingPagePerms.length > 0) {
+    if (!businessId) {
+      diagnostics.hint =
+        "İşletme (Business) ID bulunamadı. Token'ı Ayarlar'dan yeniden bağlayın.";
+    } else if (missingPagePerms.length > 0) {
       diagnostics.hint = `Token'da eksik izinler: ${missingPagePerms.join(", ")}. Meta token'ını bu izinlerle yeniden oluşturun.`;
     } else if (diagnostics.userAccountsError && diagnostics.adAccountError) {
-      diagnostics.hint = `Page API hataları — kullanıcı: ${diagnostics.userAccountsError}; reklam hesabı: ${diagnostics.adAccountError}`;
-    } else if (!accountPath) {
-      diagnostics.hint =
-        "Page bulunamadı. Önce bir reklam hesabı seçin veya Page ID'yi manuel girin.";
+      diagnostics.hint = `Page API hataları — işletme: ${diagnostics.userAccountsError}; reklam hesabı: ${diagnostics.adAccountError}`;
     } else if (diagnostics.adAccountError) {
       diagnostics.hint = `Reklam hesabı Page listesi alınamadı: ${diagnostics.adAccountError}`;
     } else {
-      diagnostics.hint =
-        "Bu token ile erişilebilir Facebook Page bulunamadı. Page ID'yi manuel girebilirsiniz.";
+      diagnostics.hint = `Business ${businessId} altında erişilebilir Facebook Page bulunamadı.`;
     }
   }
 
@@ -733,10 +726,52 @@ export async function getFacebookPages(options?: {
 }
 
 export type MetaPixel = { id: string; name?: string };
-export async function getPixels(adAccountId: string): Promise<MetaPixel[]> {
-  const accountPath = normalizeAdAccountId(adAccountId);
-  const result = await metaRequest<{ data?: MetaPixel[] }>(`${accountPath}/pixels?fields=id,name&limit=200`);
-  return result.data ?? [];
+
+export async function getPixels(options: {
+  adAccountId: string;
+  connectionId?: string;
+  businessId?: string;
+}): Promise<MetaPixel[]> {
+  const token = await getStoredAccessToken(options.connectionId);
+  const businessId =
+    options.businessId?.trim() ||
+    (options.connectionId
+      ? await ensureMetaBusinessId(options.connectionId)
+      : (await getMetaConnection())?.metaBusinessId?.trim() ?? null);
+
+  const collected: MetaPixel[] = [];
+  const accountPath = normalizeAdAccountId(options.adAccountId);
+  if (accountPath) {
+    try {
+      const fromAccount = await fetchPaged<MetaPixel>(
+        `${accountPath}/adspixels?fields=id,name&limit=200`,
+        200,
+        token,
+      );
+      collected.push(...fromAccount);
+    } catch {
+      // fallback to business pixels
+    }
+  }
+
+  if (businessId) {
+    try {
+      const fromBusiness = await fetchPaged<MetaPixel>(
+        `${businessId}/adspixels?fields=id,name&limit=200`,
+        200,
+        token,
+      );
+      collected.push(...fromBusiness);
+    } catch {
+      // ignore
+    }
+  }
+
+  const map = new Map<string, MetaPixel>();
+  for (const pixel of collected) {
+    if (pixel?.id) map.set(pixel.id, pixel);
+  }
+  return Array.from(map.values());
 }
 
 export type MetaInstagramAccount = { id: string; username?: string; name?: string };
@@ -793,11 +828,15 @@ function buildLocationQueries(input: {
   cityName?: string;
   regionName?: string;
   displayName?: string;
+  countryCode?: string;
 }): string[] {
+  const countryLabel = input.countryCode?.trim().toUpperCase() === "TR" ? "Turkey" : "";
   const raw = [
     input.cityName,
     input.regionName,
     input.displayName?.split(",")[0]?.trim(),
+    input.cityName && countryLabel ? `${input.cityName}, ${countryLabel}` : undefined,
+    input.regionName && countryLabel ? `${input.regionName}, ${countryLabel}` : undefined,
   ].filter((value): value is string => Boolean(value?.trim()));
 
   const queries = new Set<string>();
@@ -923,9 +962,10 @@ export async function resolveMetaGeoLocation(input: {
   displayName?: string;
   countryCode: string;
   connectionId?: string;
+  adAccountId?: string;
 }): Promise<{ city?: MetaTargetingLocation; region?: MetaTargetingLocation; error?: string }> {
   const countryCode = input.countryCode.trim().toUpperCase();
-  const queries = buildLocationQueries(input);
+  const queries = buildLocationQueries({ ...input, countryCode });
   if (queries.length === 0) {
     return { error: "Konum adı bulunamadı" };
   }
