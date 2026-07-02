@@ -15,6 +15,7 @@ import type {
 import type {
   MetaInstagramAccount,
   MetaPage,
+  MetaPagesDiagnostics,
   MetaPixel,
   MetaTargetingLocation,
   GoogleLocationSelection,
@@ -210,11 +211,17 @@ export async function uploadAdImage(file: File): Promise<{ imageHash: string }> 
   });
 }
 
-export async function fetchPages(params?: { connectionId?: string }): Promise<MetaPage[]> {
-  const data = await apiFetch<{ pages: MetaPage[] }>(
-    `/api/meta/pages${buildQuery({ connectionId: params?.connectionId })}`,
+export async function fetchPages(params?: {
+  connectionId?: string;
+  adAccountId?: string;
+}): Promise<{ pages: MetaPage[]; diagnostics?: MetaPagesDiagnostics }> {
+  const data = await apiFetch<{ pages: MetaPage[]; diagnostics?: MetaPagesDiagnostics }>(
+    `/api/meta/pages${buildQuery({
+      connectionId: params?.connectionId,
+      adAccountId: params?.adAccountId,
+    })}`,
   );
-  return data.pages;
+  return { pages: data.pages, diagnostics: data.diagnostics };
 }
 
 export async function fetchInstagramAccounts(pageId: string): Promise<MetaInstagramAccount[]> {
@@ -239,21 +246,34 @@ export async function fetchGoogleLocationDetails(params: {
   return data.selection;
 }
 
-export async function fetchMetaTargetingLocations(params: {
+export async function resolveMetaGeoLocation(params: {
   connectionId?: string;
-  query: string;
-  countryCode?: string;
-  locationType: "country" | "region" | "city";
-}): Promise<MetaTargetingLocation[]> {
-  const data = await apiFetch<{ locations: MetaTargetingLocation[] }>(
+  countryCode: string;
+  cityName?: string;
+  regionName?: string;
+  displayName?: string;
+  query?: string;
+}): Promise<{
+  city: MetaTargetingLocation | null;
+  region: MetaTargetingLocation | null;
+  match: MetaTargetingLocation | null;
+}> {
+  const data = await apiFetch<{
+    city: MetaTargetingLocation | null;
+    region: MetaTargetingLocation | null;
+    match: MetaTargetingLocation | null;
+  }>(
     `/api/meta/targeting-locations${buildQuery({
+      resolve: "1",
       connectionId: params.connectionId,
-      query: params.query,
       countryCode: params.countryCode,
-      locationType: params.locationType,
+      cityName: params.cityName,
+      regionName: params.regionName,
+      displayName: params.displayName,
+      query: params.query,
     })}`,
   );
-  return data.locations;
+  return data;
 }
 
 export async function runWebsiteSalesWizard(

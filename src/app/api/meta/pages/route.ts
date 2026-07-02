@@ -9,7 +9,8 @@ export async function GET(request: NextRequest) {
   }
   try {
     const connectionId = request.nextUrl.searchParams.get("connectionId")?.trim() || undefined;
-    const pages = await getFacebookPages({ connectionId });
+    const adAccountId = request.nextUrl.searchParams.get("adAccountId")?.trim() || undefined;
+    const { pages, diagnostics } = await getFacebookPages({ connectionId, adAccountId });
     const options = pages.map((p) => ({
       id: p.id,
       name: p.name,
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
       source: "user" as const,
       instagramAccounts: [],
     }));
-    return NextResponse.json({ pages: options });
+    return NextResponse.json({ pages: options, diagnostics });
   } catch (error) {
     return handleApiError(error);
   }

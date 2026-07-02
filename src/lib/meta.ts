@@ -551,50 +551,149 @@ export async function createAdCreative(
 }
 
 export type MetaPage = { id: string; name: string; picture?: { data?: { url?: string } } };
-export async function getFacebookPages(options?: { connectionId?: string }): Promise<MetaPage[]> {
+
+export type MetaPagesDiagnostics = {
+  userAccountsCount: number;
+  businessOwnedCount: number;
+  businessClientCount: number;
+  adAccountCount: number;
+  userAccountsError?: string;
+  adAccountError?: string;
+  missingPermissions: string[];
+  hint?: string;
+};
+
+export type MetaPagesResult = {
+  pages: MetaPage[];
+  diagnostics: MetaPagesDiagnostics;
+};
+
+const PAGE_LIST_PERMISSIONS = [
+  "pages_show_list",
+  "pages_read_engagement",
+  "business_management",
+  "ads_management",
+] as const;
+
+async function getGrantedPermissions(connectionId?: string): Promise<string[]> {
+  try {
+    const result = await metaRequest<{ data?: Array<{ permission: string; status: string }> }>(
+      "me/permissions",
+      { connectionId },
+    );
+    return (result.data ?? [])
+      .filter((item) => item.status === "granted")
+      .map((item) => item.permission);
+  } catch {
+    return [];
+  }
+}
+
+export async function getFacebookPages(options?: {
+  connectionId?: string;
+  adAccountId?: string;
+}): Promise<MetaPagesResult> {
   const collected: MetaPage[] = [];
+  const diagnostics: MetaPagesDiagnostics = {
+    userAccountsCount: 0,
+    businessOwnedCount: 0,
+    businessClientCount: 0,
+    adAccountCount: 0,
+    missingPermissions: [],
+  };
+
+  const granted = await getGrantedPermissions(options?.connectionId);
+  diagnostics.missingPermissions = PAGE_LIST_PERMISSIONS.filter(
+    (permission) => !granted.includes(permission),
+  );
 
   try {
     const result = await metaRequest<{ data?: MetaPage[] }>(
       "me/accounts?fields=id,name,picture{url}&limit=200",
       { connectionId: options?.connectionId },
     );
-    if (result.data) collected.push(...result.data);
-  } catch {
-    // ignore, try business fallback
+    if (result.data) {
+      collected.push(...result.data);
+      diagnostics.userAccountsCount = result.data.length;
+    }
+  } catch (error) {
+    diagnostics.userAccountsError =
+      error instanceof Error ? error.message : "me/accounts isteği başarısız";
   }
 
   try {
-    const businesses = await getBusinesses();
+    const token = await getStoredAccessToken(options?.connectionId);
+    const businesses = await getBusinesses({ token });
     for (const b of businesses) {
       try {
         const owned = await metaRequest<{ data?: MetaPage[] }>(
           `${b.id}/owned_pages?fields=id,name,picture{url}&limit=200`,
           { connectionId: options?.connectionId },
         );
-        if (owned.data) collected.push(...owned.data);
+        if (owned.data) {
+          collected.push(...owned.data);
+          diagnostics.businessOwnedCount += owned.data.length;
+        }
       } catch {
-        // ignore
+        // ignore per-business failures
       }
       try {
         const client = await metaRequest<{ data?: MetaPage[] }>(
           `${b.id}/client_pages?fields=id,name,picture{url}&limit=200`,
           { connectionId: options?.connectionId },
         );
-        if (client.data) collected.push(...client.data);
+        if (client.data) {
+          collected.push(...client.data);
+          diagnostics.businessClientCount += client.data.length;
+        }
       } catch {
-        // ignore
+        // ignore per-business failures
       }
     }
   } catch {
-    // ignore
+    // ignore business list failures
+  }
+
+  const accountPath = options?.adAccountId ? normalizeAdAccountId(options.adAccountId) : "";
+  if (accountPath) {
+    try {
+      const promoted = await metaRequest<{ data?: MetaPage[] }>(
+        `${accountPath}/promote_pages?fields=id,name,picture{url}&limit=200`,
+        { connectionId: options?.connectionId },
+      );
+      if (promoted.data) {
+        collected.push(...promoted.data);
+        diagnostics.adAccountCount = promoted.data.length;
+      }
+    } catch (error) {
+      diagnostics.adAccountError =
+        error instanceof Error ? error.message : "promote_pages isteği başarısız";
+    }
   }
 
   const map = new Map<string, MetaPage>();
   for (const p of collected) {
     if (p?.id) map.set(p.id, p);
   }
-  return Array.from(map.values());
+  const pages = Array.from(map.values());
+
+  if (pages.length === 0) {
+    if (diagnostics.missingPermissions.includes("pages_show_list")) {
+      diagnostics.hint =
+        "Token'da pages_show_list izni yok. Meta bağlantısını bu izinle yeniden oluşturun.";
+    } else if (diagnostics.userAccountsError && diagnostics.adAccountError) {
+      diagnostics.hint =
+        "Page listesi alınamadı. Token geçerliliğini ve reklam hesabı erişimini kontrol edin.";
+    } else if (!accountPath) {
+      diagnostics.hint =
+        "Page bulunamadı. Önce bir reklam hesabı seçin veya token'ın Business/Page erişimini kontrol edin.";
+    } else {
+      diagnostics.hint =
+        "Bu kullanıcı veya reklam hesabı için tanımlı Facebook Page bulunamadı.";
+    }
+  }
+
+  return { pages, diagnostics };
 }
 
 export type MetaPixel = { id: string; name?: string };
@@ -634,22 +733,97 @@ export type MetaTargetingLocation = {
   supports_radius?: boolean;
 };
 
+function toAsciiTurkish(input: string): string {
+  return input
+    .replace(/İ/g, "I")
+    .replace(/ı/g, "i")
+    .replace(/Ş/g, "S")
+    .replace(/ş/g, "s")
+    .replace(/Ğ/g, "G")
+    .replace(/ğ/g, "g")
+    .replace(/Ü/g, "U")
+    .replace(/ü/g, "u")
+    .replace(/Ö/g, "O")
+    .replace(/ö/g, "o")
+    .replace(/Ç/g, "C")
+    .replace(/ç/g, "c");
+}
+
+function normalizeLocationName(input: string): string {
+  return toAsciiTurkish(input).toLowerCase().trim();
+}
+
+function buildLocationQueries(input: {
+  cityName?: string;
+  regionName?: string;
+  displayName?: string;
+}): string[] {
+  const raw = [
+    input.cityName,
+    input.regionName,
+    input.displayName?.split(",")[0]?.trim(),
+  ].filter((value): value is string => Boolean(value?.trim()));
+
+  const queries = new Set<string>();
+  for (const value of raw) {
+    const trimmed = value.trim();
+    queries.add(trimmed);
+    const ascii = toAsciiTurkish(trimmed);
+    if (ascii !== trimmed) queries.add(ascii);
+  }
+  return Array.from(queries);
+}
+
+function pickBestTargetingMatch(
+  candidates: MetaTargetingLocation[],
+  query: string,
+  countryCode?: string,
+): MetaTargetingLocation | null {
+  if (candidates.length === 0) return null;
+
+  const normalizedQuery = normalizeLocationName(query);
+  const country = countryCode?.trim().toUpperCase();
+
+  const filtered = country
+    ? candidates.filter((item) => item.country_code?.toUpperCase() === country)
+    : candidates;
+  const pool = filtered.length > 0 ? filtered : candidates;
+
+  const exact = pool.find((item) => normalizeLocationName(item.name) === normalizedQuery);
+  if (exact) return exact;
+
+  const startsWith = pool.find((item) =>
+    normalizeLocationName(item.name).startsWith(normalizedQuery),
+  );
+  if (startsWith) return startsWith;
+
+  const contains = pool.find((item) => normalizeLocationName(item.name).includes(normalizedQuery));
+  if (contains) return contains;
+
+  return pool[0] ?? null;
+}
+
 export async function searchTargetingLocations(input: {
   query: string;
   countryCode?: string;
-  locationType: MetaTargetingLocationType;
+  locationType: MetaTargetingLocationType | MetaTargetingLocationType[];
   connectionId?: string;
+  limit?: number;
 }): Promise<MetaTargetingLocation[]> {
   const q = input.query.trim();
   if (!q) return [];
 
+  const locationTypes = Array.isArray(input.locationType)
+    ? input.locationType
+    : [input.locationType];
+
   const params = new URLSearchParams();
   params.set("type", "adgeolocation");
   params.set("q", q);
-  params.set("limit", "25");
-  params.set("location_types", JSON.stringify([input.locationType]));
+  params.set("limit", String(input.limit ?? 25));
+  params.set("location_types", JSON.stringify(locationTypes));
   if (input.countryCode?.trim()) {
-    params.set("countries", JSON.stringify([input.countryCode.trim().toUpperCase()]));
+    params.set("country_code", input.countryCode.trim().toUpperCase());
   }
 
   const result = await metaRequest<{ data?: MetaTargetingLocation[] }>(
@@ -657,6 +831,55 @@ export async function searchTargetingLocations(input: {
     { connectionId: input.connectionId },
   );
   return result.data ?? [];
+}
+
+export async function resolveMetaGeoLocation(input: {
+  cityName?: string;
+  regionName?: string;
+  displayName?: string;
+  countryCode: string;
+  connectionId?: string;
+}): Promise<{ city?: MetaTargetingLocation; region?: MetaTargetingLocation }> {
+  const countryCode = input.countryCode.trim().toUpperCase();
+  const queries = buildLocationQueries(input);
+  if (queries.length === 0) return {};
+
+  for (const query of queries) {
+    const cityCandidates = await searchTargetingLocations({
+      query,
+      countryCode,
+      locationType: "city",
+      connectionId: input.connectionId,
+      limit: 25,
+    });
+    const cityMatch = pickBestTargetingMatch(cityCandidates, query, countryCode);
+    if (cityMatch) return { city: cityMatch };
+
+    const regionCandidates = await searchTargetingLocations({
+      query,
+      countryCode,
+      locationType: "region",
+      connectionId: input.connectionId,
+      limit: 25,
+    });
+    const regionMatch = pickBestTargetingMatch(regionCandidates, query, countryCode);
+    if (regionMatch) return { region: regionMatch };
+
+    const mixedCandidates = await searchTargetingLocations({
+      query,
+      countryCode,
+      locationType: ["city", "region"],
+      connectionId: input.connectionId,
+      limit: 25,
+    });
+    const mixedMatch = pickBestTargetingMatch(mixedCandidates, query, countryCode);
+    if (mixedMatch) {
+      if (mixedMatch.type === "region") return { region: mixedMatch };
+      return { city: mixedMatch };
+    }
+  }
+
+  return {};
 }
 
 type PagedResult<T> = {

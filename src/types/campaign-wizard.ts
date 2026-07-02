@@ -96,6 +96,17 @@ export type WizardCreateResult = {
 };
 
 export type MetaPage = { id: string; name: string; pictureUrl?: string };
+
+export type MetaPagesDiagnostics = {
+  userAccountsCount: number;
+  businessOwnedCount: number;
+  businessClientCount: number;
+  adAccountCount: number;
+  userAccountsError?: string;
+  adAccountError?: string;
+  missingPermissions: string[];
+  hint?: string;
+};
 export type MetaInstagramAccount = {
   id: string;
   username?: string;

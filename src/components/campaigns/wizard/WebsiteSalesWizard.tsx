@@ -20,7 +20,7 @@ import {
   fetchPages,
   fetchPixels,
   fetchGoogleLocationDetails,
-  fetchMetaTargetingLocations,
+  resolveMetaGeoLocation,
   runWebsiteSalesWizard,
   uploadAdImage,
 } from "@/services/meta/client";
@@ -83,7 +83,7 @@ function defaultDraft(): WebsiteSalesDraft {
 
 export function WebsiteSalesWizard() {
   const router = useRouter();
-  const { isReady, status, loading: accountLoading, activeConnectionId } = useMetaAccount();
+  const { isReady, status, loading: accountLoading, activeConnectionId, selectedAdAccountId } = useMetaAccount();
 
   const [draft, setDraft] = useState<WebsiteSalesDraft>(defaultDraft());
   const [locationSessionToken] = useState(() => crypto.randomUUID());
@@ -95,6 +95,7 @@ export function WebsiteSalesWizard() {
 
   const [pagesLoading, setPagesLoading] = useState(false);
   const [pages, setPages] = useState<Array<{ id: string; name: string }>>([]);
+  const [pagesHint, setPagesHint] = useState("");
 
   const [igLoading, setIgLoading] = useState(false);
   const [igAccounts, setIgAccounts] = useState<Array<{ id: string; username?: string; name?: string }>>([]);
@@ -118,8 +119,15 @@ export function WebsiteSalesWizard() {
     if (!isReady) return;
 
     setPagesLoading(true);
-    fetchPages({ connectionId: activeConnectionId ?? undefined })
-      .then(setPages)
+    setPagesHint("");
+    fetchPages({
+      connectionId: activeConnectionId ?? undefined,
+      adAccountId: selectedAdAccountId ?? undefined,
+    })
+      .then(({ pages: nextPages, diagnostics }) => {
+        setPages(nextPages);
+        setPagesHint(diagnostics?.hint ?? "");
+      })
       .catch((e) => toast.error(e instanceof Error ? e.message : "Page listesi alınamadı"))
       .finally(() => setPagesLoading(false));
 
@@ -135,7 +143,7 @@ export function WebsiteSalesWizard() {
       })
       .catch((e) => toast.error(e instanceof Error ? e.message : "Pixel listesi alınamadı"))
       .finally(() => setPixelsLoading(false));
-  }, [accountLoading, status?.connected, isReady, activeConnectionId]);
+  }, [accountLoading, status?.connected, isReady, activeConnectionId, selectedAdAccountId]);
 
   useEffect(() => {
     if (!draft.pageId) {
@@ -199,18 +207,22 @@ export function WebsiteSalesWizard() {
       setField("country", sel);
       setField("metaCountryCode", sel.countryCode.toUpperCase());
 
-      const query = sel.cityName || sel.regionName || sel.displayName;
-      const candidates = await fetchMetaTargetingLocations({
-        query,
+      const resolved = await resolveMetaGeoLocation({
+        connectionId: activeConnectionId ?? undefined,
         countryCode: sel.countryCode,
-        locationType: "city",
+        cityName: sel.cityName,
+        regionName: sel.regionName,
+        displayName: sel.displayName,
+        query: sel.cityName || sel.regionName || sel.displayName,
       });
-      const exact = candidates.find((c) => c.name.toLowerCase() === (sel.cityName ?? "").toLowerCase());
-      const best = exact ?? candidates[0] ?? null;
-      if (!best) {
-        setLocationError("Şehir Meta hedefleme konumuna eşlenemedi");
+      if (resolved.city) {
+        setField("metaCity", resolved.city);
+        setField("metaRegion", null);
+      } else if (resolved.region) {
+        setField("metaCity", null);
+        setField("metaRegion", resolved.region);
       } else {
-        setField("metaCity", best);
+        setLocationError("Şehir Meta hedefleme konumuna eşlenemedi");
       }
     } catch (e) {
       setLocationError(e instanceof Error ? e.message : "Şehir seçilemedi");
@@ -439,7 +451,9 @@ export function WebsiteSalesWizard() {
 
             {(draft.city && (draft.metaCity?.key || draft.metaRegion?.key)) && (
               <div className="sm:col-span-2 text-xs text-muted-foreground">
-                {draft.city.displayName} — Meta hedefleme konumu doğrulandı
+                {draft.city.displayName} — Meta hedefleme:{" "}
+                {draft.metaCity?.name ?? draft.metaRegion?.name}
+                {draft.metaRegion?.key && !draft.metaCity?.key ? " (bölge)" : ""}
               </div>
             )}
             {locationLoading && (
@@ -483,8 +497,8 @@ export function WebsiteSalesWizard() {
                 <p className="text-sm text-muted-foreground">Page listesi yükleniyor...</p>
               ) : pages.length === 0 ? (
                 <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-                  Hiç Facebook Page bulunamadı. Bu genelde token’da gerekli Page izinleri olmadığı
-                  anlamına gelir.
+                  Hiç Facebook Page bulunamadı.
+                  {pagesHint ? ` ${pagesHint}` : " Token'da Page izinlerini ve reklam hesabı erişimini kontrol edin."}
                   <div className="mt-2">
                     <Button
                       type="button"
@@ -492,8 +506,15 @@ export function WebsiteSalesWizard() {
                       variant="outline"
                       onClick={() => {
                         setPagesLoading(true);
-                        fetchPages({ connectionId: activeConnectionId ?? undefined })
-                          .then(setPages)
+                        setPagesHint("");
+                        fetchPages({
+                          connectionId: activeConnectionId ?? undefined,
+                          adAccountId: selectedAdAccountId ?? undefined,
+                        })
+                          .then(({ pages: nextPages, diagnostics }) => {
+                            setPages(nextPages);
+                            setPagesHint(diagnostics?.hint ?? "");
+                          })
                           .catch((e) =>
                             toast.error(e instanceof Error ? e.message : "Page listesi alınamadı"),
                           )
