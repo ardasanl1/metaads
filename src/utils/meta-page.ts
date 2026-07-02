@@ -14,5 +14,6 @@ export function formatPageOptionLabel(page: Pick<MetaPageOption, "id" | "name" |
   if (username && !/^\d{10,}$/.test(username)) {
     return `@${username}`;
   }
-  return page.name?.trim() || page.id;
+  const shortId = page.id.slice(-4);
+  return `Facebook Sayfası (•••${shortId})`;
 }

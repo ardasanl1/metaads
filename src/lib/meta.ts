@@ -619,6 +619,7 @@ export type MetaPage = {
   id: string;
   name?: string;
   username?: string;
+  global_brand_page_name?: string;
   picture?: { data?: { url?: string } };
 };
 
@@ -646,7 +647,6 @@ export type MetaPagesResult = {
 
 const PAGE_LIST_PERMISSIONS = [
   "pages_show_list",
-  "pages_read_engagement",
   "pages_manage_ads",
   "business_management",
   "ads_management",
@@ -675,7 +675,11 @@ type PageEdgeFetchResult = {
 };
 
 async function fetchPageEdge(edgeBase: string, token: string): Promise<PageEdgeFetchResult> {
-  const fieldVariants = ["id,name,username", "id,name", "id,name,picture{url}"];
+  const fieldVariants = [
+    "id,name,username,global_brand_page_name",
+    "id,name,username",
+    "id,name",
+  ];
   let lastError: string | undefined;
 
   for (const fields of fieldVariants) {
@@ -687,126 +691,141 @@ async function fetchPageEdge(edgeBase: string, token: string): Promise<PageEdgeF
       );
       return { pages };
     } catch (error) {
-      lastError = error instanceof Error ? error.message : "Page listesi alınamadı";
+      const message = error instanceof Error ? error.message : "Page listesi alınamadı";
+      if (!message.includes("pages_read_engagement")) {
+        lastError = message;
+      }
     }
   }
 
   return { pages: [], error: lastError };
 }
 
+function isIgnorablePagePermissionError(message?: string): boolean {
+  if (!message) return false;
+  return message.includes("pages_read_engagement") || message.includes("(#10)");
+}
+
+function sanitizePageError(message?: string): string | undefined {
+  if (!message || isIgnorablePagePermissionError(message)) return undefined;
+  return message;
+}
+
 function isMissingPageName(id: string, name?: string): boolean {
   return isMissingPageDisplayName(id, name);
 }
 
-type PageNameDetails = {
-  id?: string;
-  name?: string;
-  username?: string;
-  global_brand_page_name?: string;
-  link?: string;
-  error?: { message?: string };
-};
-
-function extractDisplayNameFromPageDetails(id: string, details: PageNameDetails): string | undefined {
-  const candidates = [
-    details.name?.trim(),
-    details.global_brand_page_name?.trim(),
-    details.username?.trim(),
-  ].filter(Boolean) as string[];
-
+function pickPageNameFromRow(page: MetaPage): string | undefined {
+  const candidates = [page.name, page.global_brand_page_name, page.username];
   for (const candidate of candidates) {
-    if (!isMissingPageName(id, candidate)) {
-      return candidate;
+    const trimmed = candidate?.trim();
+    if (trimmed && !isMissingPageName(page.id, trimmed)) {
+      return trimmed;
     }
   }
-
-  if (details.link) {
-    try {
-      const slug = new URL(details.link).pathname.replace(/^\//, "").split("/")[0];
-      if (slug && !isMissingPageName(id, slug)) {
-        return slug;
-      }
-    } catch {
-      // ignore invalid URL
-    }
-  }
-
   return undefined;
 }
 
-async function batchFetchPageNames(
-  pageIds: string[],
-  token: string,
-): Promise<Map<string, { name: string; username?: string }>> {
-  const names = new Map<string, { name: string; username?: string }>();
-  const uniqueIds = [...new Set(pageIds.filter(Boolean))];
+function extractPixelIdFromPromotedObject(value: unknown): string | undefined {
+  if (!value) return undefined;
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const object = parsed as Record<string, unknown>;
+  if (object.pixel_id != null) return String(object.pixel_id);
+  if (typeof object.pixel === "object" && object.pixel !== null && "id" in object.pixel) {
+    return String((object.pixel as { id: string | number }).id);
+  }
+  return undefined;
+}
+
+async function batchFetchPixelNames(pixelIds: string[], token: string): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const uniqueIds = [...new Set(pixelIds.filter(Boolean))];
 
   for (let index = 0; index < uniqueIds.length; index += 50) {
     const chunk = uniqueIds.slice(index, index + 50);
     try {
-      const url = `${graphBaseUrl()}?ids=${encodeURIComponent(chunk.join(","))}&fields=${encodeURIComponent("id,name,username,global_brand_page_name,link")}`;
+      const url = `${graphBaseUrl()}?ids=${encodeURIComponent(chunk.join(","))}&fields=${encodeURIComponent("id,name")}`;
       const response = await fetch(url, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
-      const batchResponse = await parseMetaResponse<Record<string, PageNameDetails>>(response);
+      const data = await parseMetaResponse<
+        Record<string, { id?: string; name?: string; error?: { message?: string } }>
+      >(response);
       for (const id of chunk) {
-        const details = batchResponse[id];
-        if (!details || details.error) continue;
-        const display = extractDisplayNameFromPageDetails(id, details);
-        if (!display) continue;
-        const username = details.username?.trim();
-        names.set(id, {
-          name: display,
-          username:
-            username && !isMissingPageName(id, username) ? username.replace(/^@/, "") : undefined,
-        });
+        const row = data[id];
+        if (row?.error || !row?.name?.trim()) continue;
+        names.set(id, row.name.trim());
       }
     } catch {
-      // fall back to single-page lookups below
-    }
-  }
-
-  for (const id of uniqueIds) {
-    if (names.has(id)) continue;
-    try {
-      const details = await metaRequest<PageNameDetails>(
-        `${id}?fields=id,name,username,global_brand_page_name,link`,
-        { token },
-      );
-      const display = extractDisplayNameFromPageDetails(id, details);
-      if (!display) continue;
-      const username = details.username?.trim();
-      names.set(id, {
-        name: display,
-        username:
-          username && !isMissingPageName(id, username) ? username.replace(/^@/, "") : undefined,
-      });
-    } catch {
-      // keep unresolved
+      // ignore batch pixel lookup failures
     }
   }
 
   return names;
 }
 
-async function enrichPageNames(pages: MetaPageOption[], token: string): Promise<void> {
-  const targets = pages.filter((page) => isMissingPageName(page.id, page.name));
-  if (targets.length === 0) return;
+async function discoverPixelsFromAdAccount(accountPath: string, token: string): Promise<MetaPixel[]> {
+  const pixelIds = new Set<string>();
 
-  const resolved = await batchFetchPageNames(
-    targets.map((page) => page.id),
-    token,
-  );
+  const ingestPromotedObject = (value: unknown) => {
+    const pixelId = extractPixelIdFromPromotedObject(value);
+    if (pixelId) pixelIds.add(pixelId);
+  };
 
-  for (const page of targets) {
-    const identity = resolved.get(page.id);
-    if (!identity) continue;
-    page.name = identity.name;
-    if (identity.username) {
-      page.username = identity.username;
-    }
+  try {
+    const adsets = await fetchPaged<{ promoted_object?: unknown }>(
+      `${accountPath}/adsets?fields=promoted_object&limit=200`,
+      200,
+      token,
+    );
+    for (const adset of adsets) ingestPromotedObject(adset.promoted_object);
+  } catch {
+    // ignore
   }
+
+  try {
+    const campaigns = await fetchPaged<{ promoted_object?: unknown }>(
+      `${accountPath}/campaigns?fields=promoted_object&limit=200`,
+      200,
+      token,
+    );
+    for (const campaign of campaigns) ingestPromotedObject(campaign.promoted_object);
+  } catch {
+    // ignore
+  }
+
+  try {
+    const ads = await fetchPaged<{ tracking_specs?: Array<Record<string, unknown>> }>(
+      `${accountPath}/ads?fields=tracking_specs&limit=200`,
+      200,
+      token,
+    );
+    for (const ad of ads) {
+      for (const spec of ad.tracking_specs ?? []) {
+        const pixel = spec.fb_pixel ?? spec["pixel"];
+        if (pixel != null) pixelIds.add(String(pixel));
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  if (pixelIds.size === 0) return [];
+
+  const names = await batchFetchPixelNames([...pixelIds], token);
+  return [...pixelIds].map((id) => ({
+    id,
+    name: names.get(id) || `Pixel ${id}`,
+  }));
 }
 
 function extractPageIdFromObjectStorySpec(spec: unknown): string | undefined {
@@ -864,16 +883,10 @@ async function discoverPagesFromExistingCreatives(
 
   const pages: MetaPage[] = [];
   for (const pageId of pageIds) {
-    try {
-      const page = await metaRequest<{ id: string; name?: string; username?: string }>(
-        `${pageId}?fields=id,name,username`,
-        { token },
-      );
-      const resolved = page.name?.trim() || page.username?.trim();
-      pages.push({ id: page.id, name: resolved && !isMissingPageName(page.id, resolved) ? resolved : page.id });
-    } catch {
-      pages.push({ id: pageId, name: pageId });
-    }
+    pages.push({
+      id: pageId,
+      name: `Facebook Sayfası (•••${pageId.slice(-4)})`,
+    });
   }
 
   return pages;
@@ -1028,21 +1041,21 @@ export async function getFacebookPageOptions(input?: {
   const addPages = (items: MetaPage[], source: MetaPageOption["source"]) => {
     for (const page of items) {
       if (!page?.id) continue;
-      const name = page.name?.trim() || page.username?.trim();
+      const resolvedName = pickPageNameFromRow(page);
       const username = page.username?.trim();
       const existing = byId.get(page.id);
       if (!existing) {
         byId.set(page.id, {
           id: page.id,
-          name: name && !isMissingPageName(page.id, name) ? name : page.id,
+          name: resolvedName ?? page.id,
           username: username && !isMissingPageName(page.id, username) ? username : undefined,
           pictureUrl: page.picture?.data?.url,
           source,
         });
         continue;
       }
-      if (isMissingPageName(existing.id, existing.name) && name && !isMissingPageName(page.id, name)) {
-        existing.name = name;
+      if (isMissingPageName(existing.id, existing.name) && resolvedName) {
+        existing.name = resolvedName;
       }
       if (!existing.username && username && !isMissingPageName(page.id, username)) {
         existing.username = username;
@@ -1078,14 +1091,16 @@ export async function getFacebookPageOptions(input?: {
     addPages(owned.pages, "business_owned");
     diagnostics.businessOwnedCount += owned.pages.length;
     if (owned.error && owned.pages.length === 0) {
-      businessPageErrors.push(`${businessId}/owned_pages: ${owned.error}`);
+      const sanitized = sanitizePageError(owned.error);
+      if (sanitized) businessPageErrors.push(`${businessId}/owned_pages: ${sanitized}`);
     }
 
     const client = await fetchPageEdge(`${businessId}/client_pages`, token);
     addPages(client.pages, "business_client");
     diagnostics.businessClientCount += client.pages.length;
     if (client.error && client.pages.length === 0) {
-      businessPageErrors.push(`${businessId}/client_pages: ${client.error}`);
+      const sanitized = sanitizePageError(client.error);
+      if (sanitized) businessPageErrors.push(`${businessId}/client_pages: ${sanitized}`);
     }
 
     const pending = await fetchPageEdge(`${businessId}/pending_client_pages`, token);
@@ -1100,14 +1115,14 @@ export async function getFacebookPageOptions(input?: {
   addPages(userResult.pages, "user");
   diagnostics.userAccountsCount = userResult.pages.length;
   if (userResult.error && userResult.pages.length === 0) {
-    diagnostics.userAccountsError = userResult.error;
+    diagnostics.userAccountsError = sanitizePageError(userResult.error);
   }
 
   const assignedResult = await fetchPageEdge("me/assigned_pages", token);
   addPages(assignedResult.pages, "assigned_user");
   diagnostics.assignedPagesCount = assignedResult.pages.length;
   if (assignedResult.error && assignedResult.pages.length === 0) {
-    diagnostics.assignedPagesError = assignedResult.error;
+    diagnostics.assignedPagesError = sanitizePageError(assignedResult.error);
   }
 
   const accountPath = input?.adAccountId ? normalizeAdAccountId(input.adAccountId) : "";
@@ -1116,20 +1131,21 @@ export async function getFacebookPageOptions(input?: {
     addPages(promoted.pages, "ad_account");
     diagnostics.adAccountCount += promoted.pages.length;
     if (promoted.error && promoted.pages.length === 0) {
-      diagnostics.adAccountError = promoted.error;
+      diagnostics.adAccountError = sanitizePageError(promoted.error);
     }
 
     try {
       const account = await metaRequest<{
         promote_pages?: { data?: MetaPage[] };
-      }>(`${accountPath}?fields=promote_pages.limit(200){id,name,username}`, { token });
+      }>(`${accountPath}?fields=promote_pages.limit(200){id,name,username,global_brand_page_name}`, { token });
       const nested = account.promote_pages?.data ?? [];
       addPages(nested, "ad_account");
       diagnostics.adAccountCount += nested.length;
     } catch (error) {
       if (!diagnostics.adAccountError) {
-        diagnostics.adAccountError =
-          error instanceof Error ? error.message : "promote_pages alanı okunamadı";
+        diagnostics.adAccountError = sanitizePageError(
+          error instanceof Error ? error.message : "promote_pages alanı okunamadı",
+        );
       }
     }
 
@@ -1150,7 +1166,6 @@ export async function getFacebookPageOptions(input?: {
     user: 6,
   };
   const pages = Array.from(byId.values());
-  await enrichPageNames(pages, token);
   for (const page of pages) {
     page.name = formatPageOptionLabel(page);
   }
@@ -1216,7 +1231,7 @@ export async function getPixelsForAdAccount(input: {
   const connection = input.connectionId
     ? await getMetaConnectionById(input.connectionId)
     : await getMetaConnection();
-  const { primaryBusinessId, businessIds } = await collectBusinessIdsForPageDiscovery({
+  const { businessIds } = await collectBusinessIdsForPageDiscovery({
     connectionId: input.connectionId,
     adAccountId: input.adAccountId,
     businessId: input.businessId,
@@ -1231,18 +1246,10 @@ export async function getPixelsForAdAccount(input: {
   let adAccountError: string | undefined;
   let businessError: string | undefined;
 
-  const addPixel = (
-    pixel: MetaPixel,
-    source: MetaPixelOption["source"],
-    options?: { forceAvailable?: boolean; ownerBusinessId?: string },
-  ) => {
+  const addPixel = (pixel: MetaPixel, source: MetaPixelOption["source"]) => {
     if (!pixel?.id) return;
     const existing = byId.get(pixel.id);
-    const onAccount = accountPixelIds.has(pixel.id) || options?.forceAvailable;
-    const onMatchedBusiness =
-      source === "business" &&
-      Boolean(options?.ownerBusinessId && options.ownerBusinessId === primaryBusinessId);
-    const available = onAccount || onMatchedBusiness || source === "ad_account";
+    const available = true;
 
     if (!existing) {
       byId.set(pixel.id, {
@@ -1255,7 +1262,7 @@ export async function getPixelsForAdAccount(input: {
       return;
     }
 
-    if (!existing.available && available) {
+    if (!existing.available) {
       existing.available = true;
     }
     if (pixel.name?.trim() && (existing.name === `Pixel ${existing.id}` || !existing.name?.trim())) {
@@ -1274,7 +1281,7 @@ export async function getPixelsForAdAccount(input: {
       adAccountRequestSucceeded = true;
       for (const pixel of fromAccount) {
         accountPixelIds.add(pixel.id);
-        addPixel(pixel, "ad_account", { forceAvailable: true });
+        addPixel(pixel, "ad_account");
       }
     } catch (error) {
       adAccountError = error instanceof Error ? error.message : "Reklam hesabı Pixel isteği başarısız";
@@ -1287,7 +1294,7 @@ export async function getPixelsForAdAccount(input: {
       for (const pixel of account.adspixels?.data ?? []) {
         if (!pixel?.id) continue;
         accountPixelIds.add(pixel.id);
-        addPixel(pixel, "ad_account", { forceAvailable: true });
+        addPixel(pixel, "ad_account");
       }
       adAccountRequestSucceeded = true;
     } catch (error) {
@@ -1296,30 +1303,39 @@ export async function getPixelsForAdAccount(input: {
           error instanceof Error ? error.message : "Reklam hesabı adspixels alanı okunamadı";
       }
     }
+
+    try {
+      const fromUsage = await discoverPixelsFromAdAccount(accountPath, token);
+      if (fromUsage.length > 0) {
+        adAccountRequestSucceeded = true;
+        for (const pixel of fromUsage) {
+          accountPixelIds.add(pixel.id);
+          addPixel(pixel, "ad_account");
+        }
+      }
+    } catch {
+      // ignore usage-based pixel discovery failures
+    }
   } else {
     adAccountError = "Reklam hesabı ID geçersiz";
   }
 
   const businessPixelErrors: string[] = [];
   for (const businessId of businessIds) {
-    const edges = [
-      `${businessId}/adspixels?fields=id,name,last_fired_time&limit=200`,
-      `${businessId}/owned_pixels?fields=id,name,last_fired_time&limit=200`,
-      `${businessId}/client_pixels?fields=id,name,last_fired_time&limit=200`,
-    ];
-
-    for (const edge of edges) {
-      try {
-        const fromBusiness = await fetchPaged<MetaPixel>(edge, 200, token);
-        businessRequestSucceeded = true;
-        for (const pixel of fromBusiness) {
-          addPixel(pixel, "business", { ownerBusinessId: businessId });
-        }
-      } catch (error) {
-        businessPixelErrors.push(
-          error instanceof Error ? error.message : `${edge} başarısız`,
-        );
+    try {
+      const fromBusiness = await fetchPaged<MetaPixel>(
+        `${businessId}/adspixels?fields=id,name,last_fired_time&limit=200`,
+        200,
+        token,
+      );
+      businessRequestSucceeded = true;
+      for (const pixel of fromBusiness) {
+        addPixel(pixel, "business");
       }
+    } catch (error) {
+      businessPixelErrors.push(
+        error instanceof Error ? error.message : `${businessId}/adspixels başarısız`,
+      );
     }
   }
 
@@ -1397,30 +1413,37 @@ export async function getInstagramAccountsForPage(
   pageId: string,
   options?: { connectionId?: string; pageName?: string },
 ): Promise<MetaInstagramOption[]> {
-  const result = await metaRequest<{
-    instagram_business_account?: MetaInstagramAccount & { profile_picture_url?: string };
-    connected_instagram_account?: MetaInstagramAccount & { profile_picture_url?: string };
-  }>(
-    `${pageId}?fields=instagram_business_account{id,username,name,profile_picture_url},connected_instagram_account{id,username,name,profile_picture_url}`,
-    { connectionId: options?.connectionId },
-  );
+  try {
+    const result = await metaRequest<{
+      instagram_business_account?: MetaInstagramAccount & { profile_picture_url?: string };
+      connected_instagram_account?: MetaInstagramAccount & { profile_picture_url?: string };
+    }>(
+      `${pageId}?fields=instagram_business_account{id,username,name,profile_picture_url},connected_instagram_account{id,username,name,profile_picture_url}`,
+      { connectionId: options?.connectionId },
+    );
 
-  const raw = [result.instagram_business_account, result.connected_instagram_account].filter(
-    Boolean,
-  ) as Array<MetaInstagramAccount & { profile_picture_url?: string }>;
+    const raw = [result.instagram_business_account, result.connected_instagram_account].filter(
+      Boolean,
+    ) as Array<MetaInstagramAccount & { profile_picture_url?: string }>;
 
-  const map = new Map<string, MetaInstagramOption>();
-  for (const account of raw) {
-    map.set(account.id, {
-      id: account.id,
-      username: account.username,
-      name: account.name,
-      profilePictureUrl: account.profile_picture_url,
-      pageId,
-      pageName: options?.pageName,
-    });
+    const map = new Map<string, MetaInstagramOption>();
+    for (const account of raw) {
+      map.set(account.id, {
+        id: account.id,
+        username: account.username,
+        name: account.name,
+        profilePictureUrl: account.profile_picture_url,
+        pageId,
+        pageName: options?.pageName,
+      });
+    }
+    return Array.from(map.values());
+  } catch (error) {
+    if (error instanceof MetaApiError && error.message.includes("pages_read_engagement")) {
+      return [];
+    }
+    throw error;
   }
-  return Array.from(map.values());
 }
 
 export type MetaTargetingLocationType = "country" | "region" | "city" | "zip";
