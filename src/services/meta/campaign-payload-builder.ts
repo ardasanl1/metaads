@@ -47,7 +47,7 @@ export function buildTargetingFromDraft(draft: WebsiteSalesDraft): unknown {
 
   const targeting: Record<string, unknown> = {
     geo_locations: {
-      countries: [draft.countryCode.toUpperCase()],
+      countries: [draft.metaCountryCode ?? draft.country?.countryCode?.toUpperCase() ?? "TR"],
     },
     age_min: draft.ageMin,
     age_max: draft.ageMax,
@@ -55,7 +55,17 @@ export function buildTargetingFromDraft(draft: WebsiteSalesDraft): unknown {
 
   if (genders) targeting.genders = genders;
 
-  // İlk sürüm: broad + opsiyonel şehir. Şehir için Meta geo id gerekir; UI metinle aldığımız için burada eklemiyoruz.
+  if (draft.metaCity?.key) {
+    targeting.geo_locations = {
+      ...((targeting.geo_locations as Record<string, unknown>) ?? {}),
+      cities: [{ key: draft.metaCity.key }],
+    };
+  } else if (draft.metaRegion?.key) {
+    targeting.geo_locations = {
+      ...((targeting.geo_locations as Record<string, unknown>) ?? {}),
+      regions: [{ key: draft.metaRegion.key }],
+    };
+  }
   return targeting;
 }
 
@@ -65,13 +75,24 @@ export function buildTargetingFromSubmit(draft: WebsiteSalesSubmit): unknown {
 
   const targeting: Record<string, unknown> = {
     geo_locations: {
-      countries: [draft.countryCode.toUpperCase()],
+      countries: [draft.metaCountryCode ?? draft.country?.countryCode?.toUpperCase() ?? "TR"],
     },
     age_min: draft.ageMin,
     age_max: draft.ageMax,
   };
 
   if (genders) targeting.genders = genders;
+  if (draft.metaCity?.key) {
+    targeting.geo_locations = {
+      ...((targeting.geo_locations as Record<string, unknown>) ?? {}),
+      cities: [{ key: draft.metaCity.key }],
+    };
+  } else if (draft.metaRegion?.key) {
+    targeting.geo_locations = {
+      ...((targeting.geo_locations as Record<string, unknown>) ?? {}),
+      regions: [{ key: draft.metaRegion.key }],
+    };
+  }
   return targeting;
 }
 

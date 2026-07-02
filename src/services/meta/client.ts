@@ -16,6 +16,8 @@ import type {
   MetaInstagramAccount,
   MetaPage,
   MetaPixel,
+  MetaTargetingLocation,
+  GoogleLocationSelection,
   WebsiteSalesSubmit,
   WizardCreateResult,
 } from "@/types/campaign-wizard";
@@ -223,6 +225,33 @@ export async function fetchInstagramAccounts(pageId: string): Promise<MetaInstag
 export async function fetchPixels(): Promise<MetaPixel[]> {
   const data = await apiFetch<{ pixels: MetaPixel[] }>("/api/meta/pixels");
   return data.pixels;
+}
+
+export async function fetchGoogleLocationDetails(params: {
+  placeId: string;
+  sessionToken: string;
+}): Promise<GoogleLocationSelection> {
+  const data = await apiFetch<{ selection: GoogleLocationSelection }>(
+    `/api/locations/details${buildQuery(params)}`,
+  );
+  return data.selection;
+}
+
+export async function fetchMetaTargetingLocations(params: {
+  connectionId?: string;
+  query: string;
+  countryCode?: string;
+  locationType: "country" | "region" | "city";
+}): Promise<MetaTargetingLocation[]> {
+  const data = await apiFetch<{ locations: MetaTargetingLocation[] }>(
+    `/api/meta/targeting-locations${buildQuery({
+      connectionId: params.connectionId,
+      query: params.query,
+      countryCode: params.countryCode,
+      locationType: params.locationType,
+    })}`,
+  );
+  return data.locations;
 }
 
 export async function runWebsiteSalesWizard(

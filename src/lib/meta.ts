@@ -566,10 +566,56 @@ export async function getPixels(adAccountId: string): Promise<MetaPixel[]> {
 export type MetaInstagramAccount = { id: string; username?: string; name?: string };
 export async function getInstagramAccountsForPage(pageId: string): Promise<MetaInstagramAccount[]> {
   // Basit: Page üzerinden instagram_business_account çekiyoruz.
-  const result = await metaRequest<{ instagram_business_account?: MetaInstagramAccount }>(
-    `${pageId}?fields=instagram_business_account{id,username,name}`,
+  const result = await metaRequest<{
+    instagram_business_account?: MetaInstagramAccount & { profile_picture_url?: string };
+    connected_instagram_account?: MetaInstagramAccount & { profile_picture_url?: string };
+  }>(`${pageId}?fields=instagram_business_account{id,username,name,profile_picture_url},connected_instagram_account{id,username,name,profile_picture_url}`);
+  const accounts = [
+    result.instagram_business_account,
+    result.connected_instagram_account,
+  ].filter(Boolean) as Array<MetaInstagramAccount & { profile_picture_url?: string }>;
+  // dedupe
+  const map = new Map<string, MetaInstagramAccount & { profile_picture_url?: string }>();
+  for (const a of accounts) map.set(a.id, a);
+  return Array.from(map.values());
+}
+
+export type MetaTargetingLocationType = "country" | "region" | "city";
+export type MetaTargetingLocation = {
+  key: string;
+  name: string;
+  type: MetaTargetingLocationType;
+  country_code: string;
+  country_name?: string;
+  region?: string;
+  region_id?: string;
+  supports_region?: boolean;
+  supports_radius?: boolean;
+};
+
+export async function searchTargetingLocations(input: {
+  query: string;
+  countryCode?: string;
+  locationType: MetaTargetingLocationType;
+  connectionId?: string;
+}): Promise<MetaTargetingLocation[]> {
+  const q = input.query.trim();
+  if (!q) return [];
+
+  const params = new URLSearchParams();
+  params.set("type", "adgeolocation");
+  params.set("q", q);
+  params.set("limit", "25");
+  params.set("location_types", JSON.stringify([input.locationType]));
+  if (input.countryCode?.trim()) {
+    params.set("countries", JSON.stringify([input.countryCode.trim().toUpperCase()]));
+  }
+
+  const result = await metaRequest<{ data?: MetaTargetingLocation[] }>(
+    `search?${params.toString()}`,
+    { connectionId: input.connectionId },
   );
-  return result.instagram_business_account ? [result.instagram_business_account] : [];
+  return result.data ?? [];
 }
 
 type PagedResult<T> = {

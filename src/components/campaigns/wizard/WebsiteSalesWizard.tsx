@@ -19,6 +19,8 @@ import {
   fetchInstagramAccounts,
   fetchPages,
   fetchPixels,
+  fetchGoogleLocationDetails,
+  fetchMetaTargetingLocations,
   runWebsiteSalesWizard,
   uploadAdImage,
 } from "@/services/meta/client";
@@ -33,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { LocationAutocomplete } from "@/components/locations/LocationAutocomplete";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -57,8 +60,11 @@ function defaultDraft(): WebsiteSalesDraft {
     dailyBudget: 250,
     startDate: iso,
     endDate: "",
-    countryCode: "TR",
-    city: "",
+    country: null,
+    city: null,
+    metaCountryCode: null,
+    metaCity: null,
+    metaRegion: null,
     ageMin: 18,
     ageMax: 65,
     gender: "ALL",
@@ -80,6 +86,12 @@ export function WebsiteSalesWizard() {
   const { isReady, status, loading: accountLoading } = useMetaAccount();
 
   const [draft, setDraft] = useState<WebsiteSalesDraft>(defaultDraft());
+  const [locationSessionToken] = useState(() => crypto.randomUUID());
+  const [countrySuggestion, setCountrySuggestion] = useState<{ placeId: string; displayName: string } | null>(null);
+  const [citySuggestion, setCitySuggestion] = useState<{ placeId: string; displayName: string } | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState("");
+
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [pagesLoading, setPagesLoading] = useState(false);
@@ -170,6 +182,67 @@ export function WebsiteSalesWizard() {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
+  async function selectCountrySuggestion(s: { placeId: string; displayName: string } | null) {
+    setCountrySuggestion(s);
+    setCitySuggestion(null);
+    setLocationError("");
+    setField("city", null);
+    setField("metaCity", null);
+    setField("metaRegion", null);
+    setField("country", null);
+    setField("metaCountryCode", null);
+    if (!s) return;
+
+    setLocationLoading(true);
+    try {
+      const sel = await fetchGoogleLocationDetails({ placeId: s.placeId, sessionToken: locationSessionToken });
+      setField("country", sel);
+      setField("metaCountryCode", sel.countryCode.toUpperCase());
+    } catch (e) {
+      setLocationError(e instanceof Error ? e.message : "Ülke seçilemedi");
+    } finally {
+      setLocationLoading(false);
+    }
+  }
+
+  async function selectCitySuggestion(s: { placeId: string; displayName: string } | null) {
+    setCitySuggestion(s);
+    setLocationError("");
+    setField("city", null);
+    setField("metaCity", null);
+    setField("metaRegion", null);
+    if (!s) return;
+
+    if (!draft.country?.countryCode) {
+      setLocationError("Önce ülke seçin");
+      return;
+    }
+
+    setLocationLoading(true);
+    try {
+      const sel = await fetchGoogleLocationDetails({ placeId: s.placeId, sessionToken: locationSessionToken });
+      setField("city", sel);
+
+      const query = sel.cityName || sel.regionName || sel.displayName;
+      const candidates = await fetchMetaTargetingLocations({
+        query,
+        countryCode: draft.country.countryCode,
+        locationType: "city",
+      });
+      const exact = candidates.find((c) => c.name.toLowerCase() === (sel.cityName ?? "").toLowerCase());
+      const best = exact ?? candidates[0] ?? null;
+      if (!best) {
+        setLocationError("Şehir Meta hedefleme konumuna eşlenemedi");
+      } else {
+        setField("metaCity", best);
+      }
+    } catch (e) {
+      setLocationError(e instanceof Error ? e.message : "Şehir seçilemedi");
+    } finally {
+      setLocationLoading(false);
+    }
+  }
+
   async function handleImageSelected(file: File | null) {
     setErrors((e) => ({ ...e, imageFile: "" }));
     setImageHash("");
@@ -232,8 +305,11 @@ export function WebsiteSalesWizard() {
       dailyBudget: draft.dailyBudget,
       startDate: draft.startDate,
       endDate: draft.endDate?.trim() ? draft.endDate : undefined,
-      countryCode: draft.countryCode,
-      city: draft.city?.trim() ? draft.city : undefined,
+      country: draft.country,
+      city: draft.city,
+      metaCountryCode: draft.metaCountryCode,
+      metaCity: draft.metaCity,
+      metaRegion: draft.metaRegion,
       ageMin: draft.ageMin,
       ageMax: draft.ageMax,
       gender: draft.gender,
@@ -374,15 +450,36 @@ export function WebsiteSalesWizard() {
             <CardTitle>2) Hedef kitle</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Ülke</Label>
-              <Input value={draft.countryCode} onChange={(e) => setField("countryCode", e.target.value.toUpperCase())} />
-              {errors.countryCode && <p className="text-xs text-destructive">{errors.countryCode}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Şehir (opsiyonel)</Label>
-              <Input value={draft.city ?? ""} onChange={(e) => setField("city", e.target.value)} placeholder="İlk sürümde broad; şehir opsiyonel" />
-            </div>
+            <LocationAutocomplete
+              label="Ülke"
+              placeholder="Ülke ara (örn: Türkiye)"
+              value={countrySuggestion}
+              onSelect={(v) => void selectCountrySuggestion(v)}
+              sessionToken={locationSessionToken}
+              error={errors.country || locationError}
+              disabled={!isReady || submitting}
+              minChars={2}
+            />
+            <LocationAutocomplete
+              label="Şehir (opsiyonel)"
+              placeholder={!draft.country ? "Önce ülke seçin" : "Şehir ara (örn: İstanbul)"}
+              value={citySuggestion}
+              onSelect={(v) => void selectCitySuggestion(v)}
+              sessionToken={locationSessionToken}
+              countryCode={draft.country?.countryCode}
+              disabled={!draft.country || !isReady || submitting}
+              minChars={2}
+              error={errors.city || (locationError && !errors.country ? locationError : "")}
+            />
+
+            {(draft.city && (draft.metaCity?.key || draft.metaRegion?.key)) && (
+              <div className="sm:col-span-2 text-xs text-muted-foreground">
+                {draft.city.displayName} — Meta hedefleme konumu doğrulandı
+              </div>
+            )}
+            {locationLoading && (
+              <div className="sm:col-span-2 text-xs text-muted-foreground">Konum doğrulanıyor...</div>
+            )}
             <div className="space-y-1.5">
               <Label>Min yaş</Label>
               <Input type="number" value={String(draft.ageMin)} onChange={(e) => setField("ageMin", Number(e.target.value))} />
@@ -549,7 +646,10 @@ export function WebsiteSalesWizard() {
                 <div><b>Kampanya adı:</b> {draft.campaignName || "—"}</div>
                 <div><b>Günlük bütçe:</b> {draft.dailyBudget} TL</div>
                 <div><b>Tarih:</b> {draft.startDate} {draft.endDate ? `→ ${draft.endDate}` : ""}</div>
-                <div><b>Konum:</b> {draft.countryCode}{draft.city ? ` / ${draft.city}` : ""}</div>
+                <div>
+                  <b>Konum:</b> {draft.country?.displayName ?? "—"}
+                  {draft.city ? ` / ${draft.city.displayName}` : ""}
+                </div>
                 <div><b>Yaş:</b> {draft.ageMin}–{draft.ageMax}</div>
                 <div><b>Cinsiyet:</b> {draft.gender === "ALL" ? "Tümü" : draft.gender === "MALE" ? "Erkek" : "Kadın"}</div>
                 <div className="sm:col-span-2"><b>Website URL:</b> {draft.websiteUrl || "—"}</div>

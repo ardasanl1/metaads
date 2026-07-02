@@ -84,4 +84,22 @@ Tarih parametreleri: `datePreset`, `since`, `until`
 | `APP_PASSWORD` | Evet | İlk panel kullanıcısı seed şifresi |
 | `SESSION_SECRET` | Evet | Oturum ve token şifreleme |
 | `META_API_VERSION` | Hayır | Varsayılan `v23.0` |
+| `GOOGLE_MAPS_API_KEY` | Konum autocomplete için | Google Places API (New) server-side key |
 | `POSTGRES_URL` / `DATABASE_URL` | Vercel'de | Neon Postgres bağlantısı |
+
+## Google Places Autocomplete (New)
+
+Konum alanında ülke/şehir autocomplete için Places API (New) kullanılır. API key **frontend’e gönderilmez**; yalnızca server-side proxy route üzerinden kullanılır.
+
+### Kurulum
+
+- Google Cloud Console → Places API (New) etkinleştirin
+- API Key oluşturun
+- Key’i **Vercel Environment Variables** içine `GOOGLE_MAPS_API_KEY` olarak ekleyin (Production/Preview ihtiyacınıza göre)
+- Önerilen kısıtlar:
+  - HTTP referrer yerine server-side olduğu için **IP restriction** / **project restriction**
+  - Sadece Places API (New) endpointlerine izin verin
+
+### Key yoksa davranış
+
+`GOOGLE_MAPS_API_KEY` tanımlı değilse uygulama crash olmaz; konum autocomplete alanında “Google Places yapılandırması eksik” hatası gösterilir.

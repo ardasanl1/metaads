@@ -14,14 +14,41 @@ export type WizardSpecialAdCategory =
   | "ISSUES_ELECTIONS_POLITICS"
   | "FINANCIAL_PRODUCTS_SERVICES";
 
+export type GoogleLocationSelection = {
+  placeId: string;
+  displayName: string;
+  countryCode: string;
+  countryName?: string;
+  regionName?: string;
+  cityName?: string;
+  latitude?: number;
+  longitude?: number;
+};
+
+export type MetaTargetingLocationType = "country" | "region" | "city";
+
+export type MetaTargetingLocation = {
+  key: string;
+  name: string;
+  type: MetaTargetingLocationType;
+  countryCode: string;
+  countryName?: string;
+  region?: string;
+  regionId?: string;
+  supportsRadius?: boolean;
+};
+
 export type WebsiteSalesDraft = {
   campaignName: string;
   dailyBudget: number;
   startDate: string; // YYYY-MM-DD
   endDate?: string; // YYYY-MM-DD
 
-  countryCode: string; // ISO 3166-1 alpha-2, e.g. TR
-  city?: string;
+  country: GoogleLocationSelection | null;
+  city?: GoogleLocationSelection | null;
+  metaCountryCode: string | null;
+  metaCity?: MetaTargetingLocation | null;
+  metaRegion?: MetaTargetingLocation | null;
   ageMin: number;
   ageMax: number;
   gender: WizardGender;
@@ -68,7 +95,14 @@ export type WizardCreateResult = {
   adId?: string;
 };
 
-export type MetaPage = { id: string; name: string };
-export type MetaInstagramAccount = { id: string; username?: string; name?: string };
-export type MetaPixel = { id: string; name?: string };
+export type MetaPage = { id: string; name: string; pictureUrl?: string };
+export type MetaInstagramAccount = {
+  id: string;
+  username?: string;
+  name?: string;
+  profilePictureUrl?: string;
+  pageId: string;
+  pageName: string;
+};
+export type MetaPixel = { id: string; name?: string; lastFiredTime?: string; isAvailable: boolean };
 

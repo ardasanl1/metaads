@@ -30,7 +30,11 @@ export function validateWebsiteSalesDraft(draft: WebsiteSalesDraft): WizardValid
     errors.endDate = "Bitiş tarihi başlangıçtan önce olamaz";
   }
 
-  if (!draft.countryCode.trim()) errors.countryCode = "Ülke gerekli";
+  if (!draft.country) errors.country = "Ülke seçin";
+  if (!draft.metaCountryCode?.trim()) errors.country = "Ülke doğrulanamadı";
+  if (draft.city && !draft.metaCity?.key?.trim() && !draft.metaRegion?.key?.trim()) {
+    errors.city = "Şehir Meta hedefleme konumuna eşlenemedi";
+  }
   if (!Number.isFinite(draft.ageMin) || draft.ageMin < 13) errors.ageMin = "Minimum yaş en az 13 olmalı";
   if (!Number.isFinite(draft.ageMax) || draft.ageMax > 65) errors.ageMax = "Maksimum yaş en fazla 65 olmalı";
   if (draft.ageMin > draft.ageMax) errors.ageMax = "Maksimum yaş minimumdan küçük olamaz";
