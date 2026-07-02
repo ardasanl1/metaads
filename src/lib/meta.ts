@@ -679,16 +679,16 @@ async function fetchPageEdge(edgeBase: string, token: string): Promise<PageEdgeF
     "id,name,username,global_brand_page_name",
     "id,name,username",
     "id,name",
+    "",
   ];
   let lastError: string | undefined;
 
   for (const fields of fieldVariants) {
     try {
-      const pages = await fetchPaged<MetaPage>(
-        `${edgeBase}?fields=${fields}&limit=200`,
-        PAGE_FETCH_LIMIT,
-        token,
-      );
+      const query = fields
+        ? `${edgeBase}?fields=${fields}&limit=200`
+        : `${edgeBase}?limit=200`;
+      const pages = await fetchPaged<MetaPage>(query, PAGE_FETCH_LIMIT, token);
       return { pages };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Page listesi alınamadı";
@@ -724,6 +724,95 @@ function pickPageNameFromRow(page: MetaPage): string | undefined {
     }
   }
   return undefined;
+}
+
+function mergePageRow(existing: MetaPage | undefined, incoming: MetaPage): MetaPage {
+  const resolved = pickPageNameFromRow(incoming);
+  const existingResolved = existing ? pickPageNameFromRow(existing) : undefined;
+  return {
+    id: incoming.id,
+    name: resolved ?? existingResolved ?? incoming.name ?? existing?.name,
+    username: incoming.username?.trim() || existing?.username,
+    global_brand_page_name:
+      incoming.global_brand_page_name?.trim() || existing?.global_brand_page_name,
+    picture: incoming.picture ?? existing?.picture,
+  };
+}
+
+function registerPageRows(registry: Map<string, MetaPage>, items: MetaPage[]): void {
+  for (const page of items) {
+    if (!page?.id) continue;
+    registry.set(page.id, mergePageRow(registry.get(page.id), page));
+  }
+}
+
+const PAGE_NAME_FIELDS = "id,name,username,global_brand_page_name";
+
+async function collectPagesFromNestedFields(input: {
+  businessIds: string[];
+  accountPath: string;
+  token: string;
+}): Promise<MetaPage[]> {
+  const pages: MetaPage[] = [];
+
+  try {
+    const me = await metaRequest<{
+      assigned_pages?: { data?: MetaPage[] };
+      accounts?: { data?: MetaPage[] };
+    }>(
+      `me?fields=assigned_pages.limit(200){${PAGE_NAME_FIELDS}},accounts.limit(200){${PAGE_NAME_FIELDS}}`,
+      { token: input.token },
+    );
+    pages.push(...(me.assigned_pages?.data ?? []));
+    pages.push(...(me.accounts?.data ?? []));
+  } catch {
+    // ignore
+  }
+
+  for (const businessId of input.businessIds) {
+    try {
+      const business = await metaRequest<{
+        owned_pages?: { data?: MetaPage[] };
+        client_pages?: { data?: MetaPage[] };
+      }>(
+        `${businessId}?fields=owned_pages.limit(200){${PAGE_NAME_FIELDS}},client_pages.limit(200){${PAGE_NAME_FIELDS}}`,
+        { token: input.token },
+      );
+      pages.push(...(business.owned_pages?.data ?? []));
+      pages.push(...(business.client_pages?.data ?? []));
+    } catch {
+      // ignore
+    }
+  }
+
+  if (input.accountPath) {
+    try {
+      const account = await metaRequest<{ promote_pages?: { data?: MetaPage[] } }>(
+        `${input.accountPath}?fields=promote_pages.limit(200){${PAGE_NAME_FIELDS}}`,
+        { token: input.token },
+      );
+      pages.push(...(account.promote_pages?.data ?? []));
+    } catch {
+      // ignore
+    }
+  }
+
+  return pages;
+}
+
+function applyRegistryNames(byId: Map<string, MetaPageOption>, registry: Map<string, MetaPage>): void {
+  for (const page of byId.values()) {
+    const row = registry.get(page.id);
+    if (!row) continue;
+    const resolved = pickPageNameFromRow(row);
+    if (resolved) {
+      page.name = resolved;
+    }
+    const username = row.username?.trim();
+    if (username && !isMissingPageName(page.id, username)) {
+      page.username = username.replace(/^@/, "");
+    }
+  }
 }
 
 function extractPixelIdFromPromotedObject(value: unknown): string | undefined {
@@ -883,10 +972,7 @@ async function discoverPagesFromExistingCreatives(
 
   const pages: MetaPage[] = [];
   for (const pageId of pageIds) {
-    pages.push({
-      id: pageId,
-      name: `Facebook Sayfası (•••${pageId.slice(-4)})`,
-    });
+    pages.push({ id: pageId });
   }
 
   return pages;
@@ -1026,6 +1112,7 @@ export async function getFacebookPageOptions(input?: {
   businessId?: string;
 }): Promise<{ pages: MetaPageOption[]; diagnostics: MetaPagesDiagnostics }> {
   const byId = new Map<string, MetaPageOption>();
+  const pageNameRegistry = new Map<string, MetaPage>();
   const diagnostics: MetaPagesDiagnostics = {
     userAccountsCount: 0,
     businessOwnedCount: 0,
@@ -1039,6 +1126,7 @@ export async function getFacebookPageOptions(input?: {
   };
 
   const addPages = (items: MetaPage[], source: MetaPageOption["source"]) => {
+    registerPageRows(pageNameRegistry, items);
     for (const page of items) {
       if (!page?.id) continue;
       const resolvedName = pickPageNameFromRow(page);
@@ -1047,8 +1135,8 @@ export async function getFacebookPageOptions(input?: {
       if (!existing) {
         byId.set(page.id, {
           id: page.id,
-          name: resolvedName ?? page.id,
-          username: username && !isMissingPageName(page.id, username) ? username : undefined,
+          name: resolvedName ?? "",
+          username: username && !isMissingPageName(page.id, username) ? username.replace(/^@/, "") : undefined,
           pictureUrl: page.picture?.data?.url,
           source,
         });
@@ -1058,7 +1146,7 @@ export async function getFacebookPageOptions(input?: {
         existing.name = resolvedName;
       }
       if (!existing.username && username && !isMissingPageName(page.id, username)) {
-        existing.username = username;
+        existing.username = username.replace(/^@/, "");
       }
       if (!existing.pictureUrl && page.picture?.data?.url) {
         existing.pictureUrl = page.picture.data.url;
@@ -1084,6 +1172,12 @@ export async function getFacebookPageOptions(input?: {
     token,
   });
   diagnostics.businessesScanned = businessIds.length;
+
+  const accountPath = input?.adAccountId ? normalizeAdAccountId(input.adAccountId) : "";
+  registerPageRows(
+    pageNameRegistry,
+    await collectPagesFromNestedFields({ businessIds, accountPath, token }),
+  );
 
   const businessPageErrors: string[] = [];
   for (const businessId of businessIds) {
@@ -1125,7 +1219,6 @@ export async function getFacebookPageOptions(input?: {
     diagnostics.assignedPagesError = sanitizePageError(assignedResult.error);
   }
 
-  const accountPath = input?.adAccountId ? normalizeAdAccountId(input.adAccountId) : "";
   if (accountPath) {
     const promoted = await fetchPageEdge(`${accountPath}/promote_pages`, token);
     addPages(promoted.pages, "ad_account");
@@ -1166,8 +1259,11 @@ export async function getFacebookPageOptions(input?: {
     user: 6,
   };
   const pages = Array.from(byId.values());
+  applyRegistryNames(byId, pageNameRegistry);
   for (const page of pages) {
-    page.name = formatPageOptionLabel(page);
+    if (isMissingPageName(page.id, page.name)) {
+      page.name = formatPageOptionLabel(page);
+    }
   }
   pages.sort((a, b) => {
     const priorityDiff = sourcePriority[a.source] - sourcePriority[b.source];
