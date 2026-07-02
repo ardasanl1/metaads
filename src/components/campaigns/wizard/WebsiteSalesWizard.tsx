@@ -87,7 +87,6 @@ export function WebsiteSalesWizard() {
 
   const [draft, setDraft] = useState<WebsiteSalesDraft>(defaultDraft());
   const [locationSessionToken] = useState(() => crypto.randomUUID());
-  const [countrySuggestion, setCountrySuggestion] = useState<{ placeId: string; displayName: string } | null>(null);
   const [citySuggestion, setCitySuggestion] = useState<{ placeId: string; displayName: string } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState("");
@@ -182,9 +181,8 @@ export function WebsiteSalesWizard() {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
-  async function selectCountrySuggestion(s: { placeId: string; displayName: string } | null) {
-    setCountrySuggestion(s);
-    setCitySuggestion(null);
+  async function selectCitySuggestion(s: { placeId: string; displayName: string } | null) {
+    setCitySuggestion(s);
     setLocationError("");
     setField("city", null);
     setField("metaCity", null);
@@ -196,37 +194,15 @@ export function WebsiteSalesWizard() {
     setLocationLoading(true);
     try {
       const sel = await fetchGoogleLocationDetails({ placeId: s.placeId, sessionToken: locationSessionToken });
+      setField("city", sel);
+      // şehir seçimi ülkeyi de otomatik doldurur
       setField("country", sel);
       setField("metaCountryCode", sel.countryCode.toUpperCase());
-    } catch (e) {
-      setLocationError(e instanceof Error ? e.message : "Ülke seçilemedi");
-    } finally {
-      setLocationLoading(false);
-    }
-  }
-
-  async function selectCitySuggestion(s: { placeId: string; displayName: string } | null) {
-    setCitySuggestion(s);
-    setLocationError("");
-    setField("city", null);
-    setField("metaCity", null);
-    setField("metaRegion", null);
-    if (!s) return;
-
-    if (!draft.country?.countryCode) {
-      setLocationError("Önce ülke seçin");
-      return;
-    }
-
-    setLocationLoading(true);
-    try {
-      const sel = await fetchGoogleLocationDetails({ placeId: s.placeId, sessionToken: locationSessionToken });
-      setField("city", sel);
 
       const query = sel.cityName || sel.regionName || sel.displayName;
       const candidates = await fetchMetaTargetingLocations({
         query,
-        countryCode: draft.country.countryCode,
+        countryCode: sel.countryCode,
         locationType: "city",
       });
       const exact = candidates.find((c) => c.name.toLowerCase() === (sel.cityName ?? "").toLowerCase());
@@ -451,25 +427,14 @@ export function WebsiteSalesWizard() {
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <LocationAutocomplete
-              label="Ülke"
-              placeholder="Ülke ara (örn: Türkiye)"
-              value={countrySuggestion}
-              onSelect={(v) => void selectCountrySuggestion(v)}
-              sessionToken={locationSessionToken}
-              error={errors.country || locationError}
-              disabled={!isReady || submitting}
-              minChars={2}
-            />
-            <LocationAutocomplete
-              label="Şehir (opsiyonel)"
-              placeholder={!draft.country ? "Önce ülke seçin" : "Şehir ara (örn: İstanbul)"}
+              label="Şehir"
+              placeholder="Şehir ara (örn: İstanbul)"
               value={citySuggestion}
               onSelect={(v) => void selectCitySuggestion(v)}
               sessionToken={locationSessionToken}
-              countryCode={draft.country?.countryCode}
-              disabled={!draft.country || !isReady || submitting}
+              disabled={!isReady || submitting}
               minChars={2}
-              error={errors.city || (locationError && !errors.country ? locationError : "")}
+              error={errors.city || locationError || errors.country}
             />
 
             {(draft.city && (draft.metaCity?.key || draft.metaRegion?.key)) && (

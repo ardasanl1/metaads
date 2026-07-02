@@ -35,7 +35,6 @@ export const WEBSITE_SALES_RECIPE: WebsiteSalesRecipe = {
     "campaignName",
     "dailyBudget",
     "startDate",
-    "country",
     "metaCountryCode",
     "ageMin",
     "ageMax",

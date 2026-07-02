@@ -30,7 +30,7 @@ export function validateWebsiteSalesDraft(draft: WebsiteSalesDraft): WizardValid
     errors.endDate = "Bitiş tarihi başlangıçtan önce olamaz";
   }
 
-  if (!draft.country) errors.country = "Ülke seçin";
+  // Ülke seçimi artık zorunlu değil; şehir seçilince ülke otomatik türetilir.
   if (!draft.metaCountryCode?.trim()) errors.country = "Ülke doğrulanamadı";
   if (draft.city && !draft.metaCity?.key?.trim() && !draft.metaRegion?.key?.trim()) {
     errors.city = "Şehir Meta hedefleme konumuna eşlenemedi";

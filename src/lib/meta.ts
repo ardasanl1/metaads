@@ -552,11 +552,49 @@ export async function createAdCreative(
 
 export type MetaPage = { id: string; name: string; picture?: { data?: { url?: string } } };
 export async function getFacebookPages(options?: { connectionId?: string }): Promise<MetaPage[]> {
-  const result = await metaRequest<{ data?: MetaPage[] }>(
-    "me/accounts?fields=id,name,picture{url}&limit=200",
-    { connectionId: options?.connectionId },
-  );
-  return result.data ?? [];
+  const collected: MetaPage[] = [];
+
+  try {
+    const result = await metaRequest<{ data?: MetaPage[] }>(
+      "me/accounts?fields=id,name,picture{url}&limit=200",
+      { connectionId: options?.connectionId },
+    );
+    if (result.data) collected.push(...result.data);
+  } catch {
+    // ignore, try business fallback
+  }
+
+  try {
+    const businesses = await getBusinesses();
+    for (const b of businesses) {
+      try {
+        const owned = await metaRequest<{ data?: MetaPage[] }>(
+          `${b.id}/owned_pages?fields=id,name,picture{url}&limit=200`,
+          { connectionId: options?.connectionId },
+        );
+        if (owned.data) collected.push(...owned.data);
+      } catch {
+        // ignore
+      }
+      try {
+        const client = await metaRequest<{ data?: MetaPage[] }>(
+          `${b.id}/client_pages?fields=id,name,picture{url}&limit=200`,
+          { connectionId: options?.connectionId },
+        );
+        if (client.data) collected.push(...client.data);
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  const map = new Map<string, MetaPage>();
+  for (const p of collected) {
+    if (p?.id) map.set(p.id, p);
+  }
+  return Array.from(map.values());
 }
 
 export type MetaPixel = { id: string; name?: string };
