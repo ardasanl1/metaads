@@ -13,8 +13,14 @@ import type {
   QuickDateFilter,
 } from "@/types/meta";
 import type {
-  MetaInstagramAccount,
-  MetaPage,
+  MetaAssetDiagnostics,
+  MetaInstagramOption,
+  MetaLocationOption,
+  MetaPageOption,
+  MetaPixelOption,
+  ResolvedMetaAssets,
+} from "@/types/meta-assets";
+import type {
   MetaPagesDiagnostics,
   MetaPixel,
   MetaTargetingLocation,
@@ -214,8 +220,8 @@ export async function uploadAdImage(file: File): Promise<{ imageHash: string }> 
 export async function fetchPages(params?: {
   connectionId?: string;
   adAccountId?: string;
-}): Promise<{ pages: MetaPage[]; diagnostics?: MetaPagesDiagnostics }> {
-  const data = await apiFetch<{ pages: MetaPage[]; diagnostics?: MetaPagesDiagnostics }>(
+}): Promise<{ pages: MetaPageOption[]; diagnostics?: MetaPagesDiagnostics }> {
+  const data = await apiFetch<{ pages: MetaPageOption[]; diagnostics?: MetaPagesDiagnostics }>(
     `/api/meta/pages${buildQuery({
       connectionId: params?.connectionId,
       adAccountId: params?.adAccountId,
@@ -224,18 +230,122 @@ export async function fetchPages(params?: {
   return { pages: data.pages, diagnostics: data.diagnostics };
 }
 
-export async function fetchInstagramAccounts(pageId: string): Promise<MetaInstagramAccount[]> {
-  const data = await apiFetch<{ accounts: MetaInstagramAccount[] }>(
-    `/api/meta/instagram-accounts${buildQuery({ pageId })}`,
+export async function fetchInstagramAccounts(
+  pageId: string,
+  params?: { connectionId?: string; pageName?: string },
+): Promise<MetaInstagramOption[]> {
+  const data = await apiFetch<{ accounts: MetaInstagramOption[] }>(
+    `/api/meta/instagram-accounts${buildQuery({
+      pageId,
+      connectionId: params?.connectionId,
+      pageName: params?.pageName,
+    })}`,
   );
   return data.accounts;
 }
 
-export async function fetchPixels(params?: { connectionId?: string }): Promise<MetaPixel[]> {
-  const data = await apiFetch<{ pixels: MetaPixel[] }>(
-    `/api/meta/pixels${buildQuery({ connectionId: params?.connectionId })}`,
+export async function fetchPixels(params?: {
+  connectionId?: string;
+  adAccountId?: string;
+}): Promise<MetaPixel[]> {
+  const data = await fetchPixelsDetailed(params);
+  return data.pixels
+    .filter((pixel) => pixel.available)
+    .map((pixel) => ({
+      id: pixel.id,
+      name: pixel.name,
+      lastFiredTime: pixel.lastFiredTime,
+      isAvailable: true,
+    }));
+}
+
+export async function fetchPixelsDetailed(params?: {
+  connectionId?: string;
+  adAccountId?: string;
+}): Promise<{
+  pixels: MetaPixelOption[];
+  diagnostics: {
+    requestSucceeded: boolean;
+    availableCount: number;
+    totalCount: number;
+    reason?: string;
+    detail?: string;
+  };
+}> {
+  const data = await apiFetch<{
+    pixels: MetaPixelOption[];
+    diagnostics: {
+      requestSucceeded: boolean;
+      availableCount: number;
+      totalCount: number;
+      reason?: string;
+      detail?: string;
+    };
+  }>(
+    `/api/meta/pixels${buildQuery({
+      connectionId: params?.connectionId,
+      adAccountId: params?.adAccountId,
+    })}`,
   );
-  return data.pixels;
+  return data;
+}
+
+export async function fetchMetaTargetingLocations(params: {
+  query: string;
+  connectionId?: string;
+  countryCode?: string;
+}): Promise<MetaLocationOption[]> {
+  const data = await apiFetch<{ locations: MetaLocationOption[] }>(
+    `/api/meta/targeting-locations${buildQuery({
+      query: params.query,
+      connectionId: params.connectionId,
+      countryCode: params.countryCode,
+    })}`,
+  );
+  return data.locations;
+}
+
+export async function resolveMetaAssets(params: {
+  connectionId: string;
+  businessId?: string;
+  adAccountId: string;
+  recipeId: string;
+  locationQuery?: string;
+  countryCode?: string;
+  pageId?: string;
+}): Promise<ResolvedMetaAssets> {
+  return apiFetch<ResolvedMetaAssets>(
+    `/api/meta/assets/resolve${buildQuery({
+      connectionId: params.connectionId,
+      businessId: params.businessId,
+      adAccountId: params.adAccountId,
+      recipeId: params.recipeId,
+      locationQuery: params.locationQuery,
+      countryCode: params.countryCode,
+      pageId: params.pageId,
+    })}`,
+  );
+}
+
+export async function fetchMetaAssetDiagnostics(params: {
+  connectionId: string;
+  businessId?: string;
+  adAccountId: string;
+  pageId?: string;
+  locationQuery?: string;
+  countryCode?: string;
+}): Promise<MetaAssetDiagnostics> {
+  const data = await apiFetch<{ diagnostics: MetaAssetDiagnostics }>(
+    `/api/meta/assets/diagnostics${buildQuery({
+      connectionId: params.connectionId,
+      businessId: params.businessId,
+      adAccountId: params.adAccountId,
+      pageId: params.pageId,
+      locationQuery: params.locationQuery,
+      countryCode: params.countryCode,
+    })}`,
+  );
+  return data.diagnostics;
 }
 
 export async function fetchGoogleLocationDetails(params: {

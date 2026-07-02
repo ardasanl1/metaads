@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
 import { handleApiError, jsonError } from "@/lib/api-utils";
-import { resolveMetaGeoLocation, searchTargetingLocations } from "@/lib/meta";
+import {
+  resolveMetaGeoLocation,
+  searchMetaLocationOptions,
+  toMetaLocationOption,
+  searchTargetingLocations,
+} from "@/lib/meta";
 import type { MetaTargetingLocationType } from "@/lib/meta";
 
 export async function GET(request: NextRequest) {
@@ -77,34 +82,27 @@ export async function GET(request: NextRequest) {
       locationType &&
       locationType !== "country" &&
       locationType !== "region" &&
-      locationType !== "city"
+      locationType !== "city" &&
+      locationType !== "zip"
     ) {
-      return jsonError("locationType country|region|city olmalı", 400);
+      return jsonError("locationType country|region|city|zip olmalı", 400);
     }
 
-    const items = await searchTargetingLocations({
-      query,
-      countryCode: countryCode || undefined,
-      locationType: locationType
-        ? (locationType as MetaTargetingLocationType)
-        : undefined,
-      connectionId,
-    });
-
-    const locations = items.map((x) => ({
-      key: x.key,
-      name: x.name,
-      type: x.type ?? locationType,
-      countryCode: x.country_code,
-      countryName: x.country_name,
-      region: x.region,
-      regionId: x.region_id,
-      supportsRadius: Boolean(x.supports_radius),
-    }));
+    const locations = locationType
+      ? (await searchTargetingLocations({
+          query,
+          countryCode: countryCode || undefined,
+          locationType: locationType as MetaTargetingLocationType,
+          connectionId,
+        })).map(toMetaLocationOption)
+      : await searchMetaLocationOptions({
+          query,
+          countryCode: countryCode || undefined,
+          connectionId,
+        });
 
     return NextResponse.json({ locations });
   } catch (error) {
     return handleApiError(error);
   }
 }
-

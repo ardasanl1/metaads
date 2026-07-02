@@ -1,3 +1,4 @@
+import type { MetaAssetKind } from "@/types/meta-assets";
 import type { WebsiteSalesDraft, WizardCtaChoice } from "@/types/campaign-wizard";
 
 export type WebsiteSalesRecipe = {
@@ -16,6 +17,7 @@ export type WebsiteSalesRecipe = {
     status: "PAUSED";
   };
   required: Array<keyof WebsiteSalesDraft>;
+  requiredAssets: MetaAssetKind[];
 };
 
 export const WEBSITE_SALES_RECIPE: WebsiteSalesRecipe = {
@@ -48,5 +50,6 @@ export const WEBSITE_SALES_RECIPE: WebsiteSalesRecipe = {
     "cta",
     "specialAdCategory",
   ],
+  requiredAssets: ["location", "page", "pixel"],
 };
 

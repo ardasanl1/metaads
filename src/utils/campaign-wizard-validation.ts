@@ -30,19 +30,26 @@ export function validateWebsiteSalesDraft(draft: WebsiteSalesDraft): WizardValid
     errors.endDate = "Bitiş tarihi başlangıçtan önce olamaz";
   }
 
-  // Ülke seçimi artık zorunlu değil; şehir seçilince ülke otomatik türetilir.
-  if (!draft.metaCountryCode?.trim()) errors.country = "Ülke doğrulanamadı";
-  // Şehir Meta'ya eşlenemezse ülke hedeflemesi ile devam edilebilir.
-  if (draft.city && !draft.metaCity?.key?.trim() && !draft.metaRegion?.key?.trim() && !draft.metaCountryCode?.trim()) {
-    errors.city = "Şehir Meta hedefleme konumuna eşlenemedi";
+  // Meta konumu listeden seçilmeli; serbest metin kabul edilmez.
+  if (!draft.selectedAssets.location?.key?.trim()) {
+    errors.city = "Meta hedefleme konumunu listeden seçin";
+  } else {
+    const location = draft.selectedAssets.location;
+    if (location.type === "country") {
+      if (!location.countryCode?.trim()) errors.country = "Ülke doğrulanamadı";
+    }
   }
   if (!Number.isFinite(draft.ageMin) || draft.ageMin < 13) errors.ageMin = "Minimum yaş en az 13 olmalı";
   if (!Number.isFinite(draft.ageMax) || draft.ageMax > 65) errors.ageMax = "Maksimum yaş en fazla 65 olmalı";
   if (draft.ageMin > draft.ageMax) errors.ageMax = "Maksimum yaş minimumdan küçük olamaz";
 
   if (!draft.websiteUrl.trim() || !isValidUrl(draft.websiteUrl)) errors.websiteUrl = "Geçerli bir Website URL girin";
-  if (!draft.pageId.trim()) errors.pageId = "Facebook Page seçin";
-  if (!draft.pixelId.trim()) errors.pixelId = "Pixel seçin";
+  if (!draft.selectedAssets.page?.id?.trim() && !draft.pageId.trim()) {
+    errors.pageId = "Facebook Page seçin";
+  }
+  if (!draft.selectedAssets.pixel?.id?.trim() && !draft.pixelId.trim()) {
+    errors.pixelId = "Pixel seçin";
+  }
 
   if (!draft.imageFile) errors.imageFile = "Görsel yükleyin";
   if (!draft.primaryText.trim()) errors.primaryText = "Primary Text gerekli";

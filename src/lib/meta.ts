@@ -8,6 +8,13 @@ import {
   type AdAccountRaw,
 } from "@/utils/ad-account";
 import type { BuyingType, CampaignObjective, CampaignStatus, SpecialAdCategoryApi } from "@/utils/campaign-constants";
+import type {
+  MetaAssetDiagnostics,
+  MetaInstagramOption,
+  MetaLocationOption,
+  MetaPageOption,
+  MetaPixelOption,
+} from "@/types/meta-assets";
 
 export { normalizeAdAccountId };
 
@@ -612,12 +619,12 @@ async function getGrantedPermissions(connectionId?: string): Promise<string[]> {
   }
 }
 
-export async function getFacebookPages(options?: {
+export async function getFacebookPageOptions(input?: {
   connectionId?: string;
   adAccountId?: string;
   businessId?: string;
-}): Promise<MetaPagesResult> {
-  const collected: MetaPage[] = [];
+}): Promise<{ pages: MetaPageOption[]; diagnostics: MetaPagesDiagnostics }> {
+  const byId = new Map<string, MetaPageOption>();
   const diagnostics: MetaPagesDiagnostics = {
     userAccountsCount: 0,
     businessOwnedCount: 0,
@@ -626,21 +633,35 @@ export async function getFacebookPages(options?: {
     missingPermissions: [],
   };
 
-  const connection = options?.connectionId
-    ? await getMetaConnectionById(options.connectionId)
+  const addPages = (items: MetaPage[], source: MetaPageOption["source"]) => {
+    for (const page of items) {
+      if (!page?.id) continue;
+      if (!byId.has(page.id)) {
+        byId.set(page.id, {
+          id: page.id,
+          name: page.name,
+          pictureUrl: page.picture?.data?.url,
+          source,
+        });
+      }
+    }
+  };
+
+  const connection = input?.connectionId
+    ? await getMetaConnectionById(input.connectionId)
     : await getMetaConnection();
   const businessId =
-    options?.businessId?.trim() ||
+    input?.businessId?.trim() ||
     connection?.metaBusinessId?.trim() ||
     (connection ? await ensureMetaBusinessId(connection.id) : null) ||
     "";
 
-  const granted = await getGrantedPermissions(options?.connectionId);
+  const granted = await getGrantedPermissions(input?.connectionId);
   diagnostics.missingPermissions = PAGE_LIST_PERMISSIONS.filter(
     (permission) => !granted.includes(permission),
   );
 
-  const token = await getStoredAccessToken(options?.connectionId);
+  const token = await getStoredAccessToken(input?.connectionId);
 
   if (businessId) {
     try {
@@ -649,7 +670,7 @@ export async function getFacebookPages(options?: {
         200,
         token,
       );
-      collected.push(...owned);
+      addPages(owned, "business_owned");
       diagnostics.businessOwnedCount += owned.length;
     } catch (error) {
       diagnostics.userAccountsError =
@@ -661,28 +682,30 @@ export async function getFacebookPages(options?: {
         200,
         token,
       );
-      collected.push(...client);
+      addPages(client, "business_client");
       diagnostics.businessClientCount += client.length;
     } catch {
       // ignore
     }
-  } else {
-    try {
-      const result = await metaRequest<{ data?: MetaPage[] }>(
-        "me/accounts?fields=id,name,picture{url}&limit=200",
-        { connectionId: options?.connectionId },
-      );
-      if (result.data) {
-        collected.push(...result.data);
-        diagnostics.userAccountsCount = result.data.length;
-      }
-    } catch (error) {
+  }
+
+  try {
+    const result = await metaRequest<{ data?: MetaPage[] }>(
+      "me/accounts?fields=id,name,picture{url}&limit=200",
+      { connectionId: input?.connectionId },
+    );
+    if (result.data) {
+      addPages(result.data, "user");
+      diagnostics.userAccountsCount = result.data.length;
+    }
+  } catch (error) {
+    if (!diagnostics.userAccountsError) {
       diagnostics.userAccountsError =
         error instanceof Error ? error.message : "me/accounts isteği başarısız";
     }
   }
 
-  const accountPath = options?.adAccountId ? normalizeAdAccountId(options.adAccountId) : "";
+  const accountPath = input?.adAccountId ? normalizeAdAccountId(input.adAccountId) : "";
   if (accountPath) {
     try {
       const promoted = await fetchPaged<MetaPage>(
@@ -690,7 +713,7 @@ export async function getFacebookPages(options?: {
         200,
         token,
       );
-      collected.push(...promoted);
+      addPages(promoted, "ad_account");
       diagnostics.adAccountCount = promoted.length;
     } catch (error) {
       diagnostics.adAccountError =
@@ -698,11 +721,7 @@ export async function getFacebookPages(options?: {
     }
   }
 
-  const map = new Map<string, MetaPage>();
-  for (const p of collected) {
-    if (p?.id) map.set(p.id, p);
-  }
-  const pages = Array.from(map.values());
+  const pages = Array.from(byId.values());
 
   if (pages.length === 0) {
     const missingPagePerms = ["pages_show_list", "pages_manage_ads"].filter((permission) =>
@@ -712,9 +731,9 @@ export async function getFacebookPages(options?: {
       diagnostics.hint =
         "İşletme (Business) ID bulunamadı. Token'ı Ayarlar'dan yeniden bağlayın.";
     } else if (missingPagePerms.length > 0) {
-      diagnostics.hint = `Token'da eksik izinler: ${missingPagePerms.join(", ")}. Meta token'ını bu izinlerle yeniden oluşturun.`;
+      diagnostics.hint = `Facebook Page listeleme yetkisi bulunmuyor: ${missingPagePerms.join(", ")}.`;
     } else if (diagnostics.userAccountsError && diagnostics.adAccountError) {
-      diagnostics.hint = `Page API hataları — işletme: ${diagnostics.userAccountsError}; reklam hesabı: ${diagnostics.adAccountError}`;
+      diagnostics.hint = `Page API hataları — kullanıcı: ${diagnostics.userAccountsError}; reklam hesabı: ${diagnostics.adAccountError}`;
     } else if (diagnostics.adAccountError) {
       diagnostics.hint = `Reklam hesabı Page listesi alınamadı: ${diagnostics.adAccountError}`;
     } else {
@@ -725,73 +744,195 @@ export async function getFacebookPages(options?: {
   return { pages, diagnostics };
 }
 
-export type MetaPixel = { id: string; name?: string };
+export async function getFacebookPages(options?: {
+  connectionId?: string;
+  adAccountId?: string;
+  businessId?: string;
+}): Promise<MetaPagesResult> {
+  const { pages: pageOptions, diagnostics } = await getFacebookPageOptions(options);
+  const pages: MetaPage[] = pageOptions.map((page) => ({
+    id: page.id,
+    name: page.name,
+    picture: page.pictureUrl ? { data: { url: page.pictureUrl } } : undefined,
+  }));
+  return { pages, diagnostics };
+}
+
+export type MetaPixel = { id: string; name?: string; last_fired_time?: string };
+
+export type PixelsFetchResult = {
+  pixels: MetaPixelOption[];
+  requestSucceeded: boolean;
+  adAccountRequestSucceeded: boolean;
+  businessRequestSucceeded: boolean;
+  adAccountError?: string;
+  businessError?: string;
+  reason?: string;
+  detail?: string;
+};
+
+export async function getPixelsForAdAccount(input: {
+  adAccountId: string;
+  connectionId?: string;
+  businessId?: string;
+}): Promise<PixelsFetchResult> {
+  const token = await getStoredAccessToken(input.connectionId);
+  const businessId =
+    input.businessId?.trim() ||
+    (input.connectionId
+      ? await ensureMetaBusinessId(input.connectionId)
+      : (await getMetaConnection())?.metaBusinessId?.trim() ?? null);
+
+  const byId = new Map<string, MetaPixelOption>();
+  const accountPixelIds = new Set<string>();
+  let adAccountRequestSucceeded = false;
+  let businessRequestSucceeded = false;
+  let adAccountError: string | undefined;
+  let businessError: string | undefined;
+
+  const accountPath = normalizeAdAccountId(input.adAccountId);
+  if (accountPath) {
+    try {
+      const fromAccount = await fetchPaged<MetaPixel>(
+        `${accountPath}/adspixels?fields=id,name,last_fired_time&limit=200`,
+        200,
+        token,
+      );
+      adAccountRequestSucceeded = true;
+      for (const pixel of fromAccount) {
+        if (!pixel?.id) continue;
+        accountPixelIds.add(pixel.id);
+        byId.set(pixel.id, {
+          id: pixel.id,
+          name: pixel.name?.trim() || `Pixel ${pixel.id}`,
+          lastFiredTime: pixel.last_fired_time,
+          source: "ad_account",
+          available: true,
+        });
+      }
+    } catch (error) {
+      adAccountError = error instanceof Error ? error.message : "Reklam hesabı Pixel isteği başarısız";
+    }
+  } else {
+    adAccountError = "Reklam hesabı ID geçersiz";
+  }
+
+  if (businessId) {
+    try {
+      const fromBusiness = await fetchPaged<MetaPixel>(
+        `${businessId}/adspixels?fields=id,name,last_fired_time&limit=200`,
+        200,
+        token,
+      );
+      businessRequestSucceeded = true;
+      for (const pixel of fromBusiness) {
+        if (!pixel?.id || byId.has(pixel.id)) continue;
+        byId.set(pixel.id, {
+          id: pixel.id,
+          name: pixel.name?.trim() || `Pixel ${pixel.id}`,
+          lastFiredTime: pixel.last_fired_time,
+          source: "business",
+          available: false,
+        });
+      }
+    } catch (error) {
+      businessError = error instanceof Error ? error.message : "Business Pixel isteği başarısız";
+    }
+  }
+
+  const pixels = Array.from(byId.values());
+  const availableCount = pixels.filter((pixel) => pixel.available).length;
+  const requestSucceeded = adAccountRequestSucceeded || businessRequestSucceeded;
+
+  let reason: string | undefined;
+  let detail: string | undefined;
+
+  if (availableCount > 0) {
+    reason = undefined;
+  } else if (!requestSucceeded) {
+    if (adAccountError?.includes("OAuth") || businessError?.includes("OAuth")) {
+      reason = "Token geçersiz veya süresi dolmuş";
+    } else if (adAccountError?.includes("permission") || businessError?.includes("permission")) {
+      reason = "Meta permission hatası";
+      detail = adAccountError ?? businessError;
+    } else {
+      reason = "Meta API isteği başarısız";
+      detail = adAccountError ?? businessError;
+    }
+  } else if (pixels.length > 0) {
+    reason = "Pixel var fakat bu reklam hesabında kullanılamıyor";
+    detail = "Business altında Pixel bulundu ancak seçili reklam hesabına atanmamış.";
+  } else if (adAccountRequestSucceeded || businessRequestSucceeded) {
+    reason = "Reklam hesabına atanmış Pixel bulunamadı";
+  } else if (adAccountError) {
+    reason = "Reklam hesabı hatalı";
+    detail = adAccountError;
+  }
+
+  return {
+    pixels,
+    requestSucceeded,
+    adAccountRequestSucceeded,
+    businessRequestSucceeded,
+    adAccountError,
+    businessError,
+    reason,
+    detail,
+  };
+}
 
 export async function getPixels(options: {
   adAccountId: string;
   connectionId?: string;
   businessId?: string;
 }): Promise<MetaPixel[]> {
-  const token = await getStoredAccessToken(options.connectionId);
-  const businessId =
-    options.businessId?.trim() ||
-    (options.connectionId
-      ? await ensureMetaBusinessId(options.connectionId)
-      : (await getMetaConnection())?.metaBusinessId?.trim() ?? null);
-
-  const collected: MetaPixel[] = [];
-  const accountPath = normalizeAdAccountId(options.adAccountId);
-  if (accountPath) {
-    try {
-      const fromAccount = await fetchPaged<MetaPixel>(
-        `${accountPath}/adspixels?fields=id,name&limit=200`,
-        200,
-        token,
-      );
-      collected.push(...fromAccount);
-    } catch {
-      // fallback to business pixels
-    }
-  }
-
-  if (businessId) {
-    try {
-      const fromBusiness = await fetchPaged<MetaPixel>(
-        `${businessId}/adspixels?fields=id,name&limit=200`,
-        200,
-        token,
-      );
-      collected.push(...fromBusiness);
-    } catch {
-      // ignore
-    }
-  }
-
-  const map = new Map<string, MetaPixel>();
-  for (const pixel of collected) {
-    if (pixel?.id) map.set(pixel.id, pixel);
-  }
-  return Array.from(map.values());
+  const result = await getPixelsForAdAccount(options);
+  return result.pixels.filter((pixel) => pixel.available).map((pixel) => ({
+    id: pixel.id,
+    name: pixel.name,
+  }));
 }
 
-export type MetaInstagramAccount = { id: string; username?: string; name?: string };
-export async function getInstagramAccountsForPage(pageId: string): Promise<MetaInstagramAccount[]> {
-  // Basit: Page üzerinden instagram_business_account çekiyoruz.
+export type MetaInstagramAccount = {
+  id: string;
+  username?: string;
+  name?: string;
+  profilePictureUrl?: string;
+  pageId?: string;
+  pageName?: string;
+};
+
+export async function getInstagramAccountsForPage(
+  pageId: string,
+  options?: { connectionId?: string; pageName?: string },
+): Promise<MetaInstagramOption[]> {
   const result = await metaRequest<{
     instagram_business_account?: MetaInstagramAccount & { profile_picture_url?: string };
     connected_instagram_account?: MetaInstagramAccount & { profile_picture_url?: string };
-  }>(`${pageId}?fields=instagram_business_account{id,username,name,profile_picture_url},connected_instagram_account{id,username,name,profile_picture_url}`);
-  const accounts = [
-    result.instagram_business_account,
-    result.connected_instagram_account,
-  ].filter(Boolean) as Array<MetaInstagramAccount & { profile_picture_url?: string }>;
-  // dedupe
-  const map = new Map<string, MetaInstagramAccount & { profile_picture_url?: string }>();
-  for (const a of accounts) map.set(a.id, a);
+  }>(
+    `${pageId}?fields=instagram_business_account{id,username,name,profile_picture_url},connected_instagram_account{id,username,name,profile_picture_url}`,
+    { connectionId: options?.connectionId },
+  );
+
+  const raw = [result.instagram_business_account, result.connected_instagram_account].filter(
+    Boolean,
+  ) as Array<MetaInstagramAccount & { profile_picture_url?: string }>;
+
+  const map = new Map<string, MetaInstagramOption>();
+  for (const account of raw) {
+    map.set(account.id, {
+      id: account.id,
+      username: account.username,
+      name: account.name,
+      profilePictureUrl: account.profile_picture_url,
+      pageId,
+      pageName: options?.pageName,
+    });
+  }
   return Array.from(map.values());
 }
 
-export type MetaTargetingLocationType = "country" | "region" | "city";
+export type MetaTargetingLocationType = "country" | "region" | "city" | "zip";
 export type MetaTargetingLocation = {
   key: string;
   name: string;
@@ -887,7 +1028,10 @@ function normalizeTargetingLocation(
   if (!key || !name) return null;
 
   const type =
-    raw.type === "country" || raw.type === "region" || raw.type === "city"
+    raw.type === "country" ||
+    raw.type === "region" ||
+    raw.type === "city" ||
+    raw.type === "zip"
       ? raw.type
       : fallbackType ?? "city";
 
@@ -1046,6 +1190,170 @@ export async function resolveMetaGeoLocation(input: {
 
   if (lastError) return { error: lastError };
   return { error: "Meta hedefleme kataloğunda eşleşen konum bulunamadı" };
+}
+
+export function toMetaLocationOption(location: MetaTargetingLocation): MetaLocationOption {
+  const parts = [location.name];
+  if (location.region && location.type === "city") parts.push(location.region);
+  if (location.country_name) parts.push(location.country_name);
+  else if (location.country_code) parts.push(location.country_code);
+
+  return {
+    key: location.key,
+    name: location.name,
+    type: location.type,
+    countryCode: location.country_code,
+    countryName: location.country_name,
+    regionName: location.region,
+    displayName: parts.join(", "),
+  };
+}
+
+export async function searchMetaLocationOptions(input: {
+  query: string;
+  countryCode?: string;
+  connectionId?: string;
+  limit?: number;
+}): Promise<MetaLocationOption[]> {
+  const items = await searchTargetingLocations({
+    query: input.query,
+    countryCode: input.countryCode,
+    connectionId: input.connectionId,
+    limit: input.limit ?? 25,
+  });
+  return items.map(toMetaLocationOption);
+}
+
+export async function verifyAdAccountAccess(input: {
+  connectionId?: string;
+  adAccountId: string;
+}): Promise<{ accessible: boolean; normalizedId?: string; reason?: string }> {
+  const normalizedId = normalizeAdAccountId(input.adAccountId);
+  if (!normalizedId) {
+    return { accessible: false, reason: "Reklam hesabı ID geçersiz" };
+  }
+
+  try {
+    await metaRequest<{ id?: string; name?: string }>(`${normalizedId}?fields=id,name`, {
+      connectionId: input.connectionId,
+    });
+    return { accessible: true, normalizedId };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Reklam hesabına erişilemedi";
+    if (message.includes("OAuth") || message.includes("access token")) {
+      return { accessible: false, normalizedId, reason: "Token geçersiz veya süresi dolmuş" };
+    }
+    if (message.includes("permission")) {
+      return { accessible: false, normalizedId, reason: "Meta permission hatası" };
+    }
+    return { accessible: false, normalizedId, reason: message };
+  }
+}
+
+export async function getMetaAssetDiagnostics(input: {
+  connectionId: string;
+  businessId?: string;
+  adAccountId: string;
+  pageId?: string;
+  locationQuery?: string;
+  countryCode?: string;
+}): Promise<MetaAssetDiagnostics> {
+  const granted = await getGrantedPermissions(input.connectionId);
+  const missing = PAGE_LIST_PERMISSIONS.filter((permission) => !granted.includes(permission));
+
+  const adAccount = await verifyAdAccountAccess({
+    connectionId: input.connectionId,
+    adAccountId: input.adAccountId,
+  });
+
+  let locationsAvailable = false;
+  let locationsReason: string | undefined;
+  if (input.locationQuery?.trim()) {
+    try {
+      const locationItems = await searchMetaLocationOptions({
+        query: input.locationQuery,
+        countryCode: input.countryCode,
+        connectionId: input.connectionId,
+      });
+      locationsAvailable = locationItems.length > 0;
+      if (!locationsAvailable) {
+        locationsReason = "Meta konum araması sonuç döndürmedi";
+      }
+    } catch (error) {
+      locationsReason =
+        error instanceof Error ? error.message : "Meta konum araması başarısız oldu";
+    }
+  } else {
+    locationsAvailable = true;
+  }
+
+  const businessId =
+    input.businessId?.trim() ||
+    (await ensureMetaBusinessId(input.connectionId)) ||
+    undefined;
+
+  const pageResult = await getFacebookPageOptions({
+    connectionId: input.connectionId,
+    adAccountId: input.adAccountId,
+    businessId,
+  });
+
+  const pixelResult = await getPixelsForAdAccount({
+    connectionId: input.connectionId,
+    adAccountId: input.adAccountId,
+    businessId,
+  });
+
+  let instagramCount = 0;
+  let instagramSucceeded = true;
+  let instagramReason: string | undefined;
+  if (input.pageId) {
+    try {
+      const instagram = await getInstagramAccountsForPage(input.pageId, {
+        connectionId: input.connectionId,
+        pageName: pageResult.pages.find((page) => page.id === input.pageId)?.name,
+      });
+      instagramCount = instagram.length;
+      if (instagramCount === 0) {
+        instagramReason = "Seçilen Page'e bağlı Instagram hesabı bulunamadı";
+      }
+    } catch (error) {
+      instagramSucceeded = false;
+      instagramReason =
+        error instanceof Error ? error.message : "Instagram hesapları alınamadı";
+    }
+  }
+
+  let pagesReason = pageResult.diagnostics.hint;
+  if (pageResult.pages.length === 0 && missing.length > 0) {
+    pagesReason = "Facebook Page listeleme yetkisi bulunmuyor";
+  }
+
+  const pixelsReason = pixelResult.reason;
+
+  return {
+    adAccount,
+    locations: {
+      available: locationsAvailable,
+      reason: locationsReason,
+    },
+    pages: {
+      requestSucceeded: !pageResult.diagnostics.userAccountsError || pageResult.pages.length > 0,
+      count: pageResult.pages.length,
+      reason: pagesReason,
+    },
+    instagram: {
+      requestSucceeded: instagramSucceeded,
+      count: instagramCount,
+      reason: instagramReason,
+    },
+    pixels: {
+      requestSucceeded: pixelResult.requestSucceeded,
+      count: pixelResult.pixels.filter((pixel) => pixel.available).length,
+      reason: pixelsReason,
+    },
+    missingPermissions: missing,
+  };
 }
 
 type PagedResult<T> = {

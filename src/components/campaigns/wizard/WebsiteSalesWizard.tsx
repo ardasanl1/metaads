@@ -13,17 +13,11 @@ import type {
   WizardGender,
   WizardSpecialAdCategory,
 } from "@/types/campaign-wizard";
+import type { MetaLocationOption } from "@/types/meta-assets";
 import { hasErrors, validateWebsiteSalesDraft } from "@/utils/campaign-wizard-validation";
 import { useMetaAccount } from "@/hooks/use-meta-account";
-import {
-  fetchInstagramAccounts,
-  fetchPages,
-  fetchPixels,
-  fetchGoogleLocationDetails,
-  resolveMetaGeoLocation,
-  runWebsiteSalesWizard,
-  uploadAdImage,
-} from "@/services/meta/client";
+import { useMetaAssets } from "@/hooks/use-meta-assets";
+import { runWebsiteSalesWizard, uploadAdImage } from "@/services/meta/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LocationAutocomplete } from "@/components/locations/LocationAutocomplete";
+import { MetaLocationAutocomplete } from "@/components/locations/MetaLocationAutocomplete";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -65,6 +59,7 @@ function defaultDraft(): WebsiteSalesDraft {
     metaCountryCode: null,
     metaCity: null,
     metaRegion: null,
+    selectedAssets: {},
     ageMin: 18,
     ageMax: 65,
     gender: "ALL",
@@ -83,25 +78,51 @@ function defaultDraft(): WebsiteSalesDraft {
 
 export function WebsiteSalesWizard() {
   const router = useRouter();
-  const { isReady, status, loading: accountLoading, activeConnectionId, selectedAdAccountId } = useMetaAccount();
+  const {
+    isReady,
+    status,
+    loading: accountLoading,
+    activeConnectionId,
+    activeConnection,
+    selectedAdAccountId,
+  } = useMetaAccount();
 
   const [draft, setDraft] = useState<WebsiteSalesDraft>(defaultDraft());
-  const [locationSessionToken] = useState(() => crypto.randomUUID());
-  const [citySuggestion, setCitySuggestion] = useState<{ placeId: string; displayName: string } | null>(null);
-  const [locationLoading, setLocationLoading] = useState(false);
+  const [metaLocation, setMetaLocation] = useState<MetaLocationOption | null>(null);
   const [locationError, setLocationError] = useState("");
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const [pagesLoading, setPagesLoading] = useState(false);
-  const [pages, setPages] = useState<Array<{ id: string; name: string }>>([]);
-  const [pagesHint, setPagesHint] = useState("");
+  const selectedPageId = draft.selectedAssets.page?.id ?? draft.pageId;
 
-  const [igLoading, setIgLoading] = useState(false);
-  const [igAccounts, setIgAccounts] = useState<Array<{ id: string; username?: string; name?: string }>>([]);
+  const metaAssets = useMetaAssets({
+    connectionId: activeConnectionId ?? undefined,
+    businessId: activeConnection?.metaBusinessId ?? undefined,
+    adAccountId: selectedAdAccountId ?? undefined,
+    recipeId: WEBSITE_SALES_RECIPE.id,
+    pageId: selectedPageId || undefined,
+  });
 
-  const [pixelsLoading, setPixelsLoading] = useState(false);
-  const [pixels, setPixels] = useState<Array<{ id: string; name?: string }>>([]);
+  const {
+    pages,
+    pixels,
+    instagramAccounts,
+    pagesLoading,
+    pixelsLoading,
+    instagramLoading,
+    pagesHint,
+    pixelsHint,
+    instagramHint,
+    selectedAssets,
+    setSelectedAssets,
+    reloadPages,
+    reloadPixels,
+  } = metaAssets;
+
+  const availablePixels = useMemo(
+    () => pixels.filter((pixel) => pixel.available),
+    [pixels],
+  );
 
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [imageHash, setImageHash] = useState<string>("");
@@ -114,55 +135,15 @@ export function WebsiteSalesWizard() {
   const canSubmit = isReady && !submitting && !imageUploading;
 
   useEffect(() => {
-    if (accountLoading) return;
-    if (!status?.connected) return;
-    if (!isReady) return;
-
-    setPagesLoading(true);
-    setPagesHint("");
-    fetchPages({
-      connectionId: activeConnectionId ?? undefined,
-      adAccountId: selectedAdAccountId ?? undefined,
-    })
-      .then(({ pages: nextPages, diagnostics }) => {
-        setPages(nextPages);
-        setPagesHint(diagnostics?.hint ?? "");
-      })
-      .catch((e) => toast.error(e instanceof Error ? e.message : "Page listesi alınamadı"))
-      .finally(() => setPagesLoading(false));
-
-    setPixelsLoading(true);
-    fetchPixels({ connectionId: activeConnectionId ?? undefined })
-      .then((items) => {
-        setPixels(items);
-        if (items.length === 0) {
-          toast.error(
-            "Website satış reklamı oluşturmak için kullanılabilir bir Pixel bulunamadı.",
-          );
-        }
-      })
-      .catch((e) => toast.error(e instanceof Error ? e.message : "Pixel listesi alınamadı"))
-      .finally(() => setPixelsLoading(false));
-  }, [accountLoading, status?.connected, isReady, activeConnectionId, selectedAdAccountId]);
-
-  useEffect(() => {
-    if (!draft.pageId) {
-      setIgAccounts([]);
-      setDraft((d) => ({ ...d, instagramActorId: "" }));
-      return;
-    }
-
-    setIgLoading(true);
-    fetchInstagramAccounts(draft.pageId)
-      .then((items) => {
-        setIgAccounts(items);
-        if (items.length === 1) {
-          setDraft((d) => ({ ...d, instagramActorId: items[0].id }));
-        }
-      })
-      .catch(() => setIgAccounts([]))
-      .finally(() => setIgLoading(false));
-  }, [draft.pageId]);
+    setDraft((current) => ({
+      ...current,
+      selectedAssets,
+      pageId: selectedAssets.page?.id ?? "",
+      pixelId: selectedAssets.pixel?.id ?? "",
+      instagramActorId: selectedAssets.instagram?.id ?? "",
+      metaCountryCode: selectedAssets.location?.countryCode ?? current.metaCountryCode,
+    }));
+  }, [selectedAssets]);
 
   useEffect(() => {
     return () => {
@@ -171,69 +152,105 @@ export function WebsiteSalesWizard() {
   }, [imagePreviewUrl]);
 
   const review = useMemo(() => {
-    const pageName = pages.find((p) => p.id === draft.pageId)?.name ?? "—";
-    const pixelName = pixels.find((p) => p.id === draft.pixelId)?.name ?? draft.pixelId ?? "—";
+    const pageName = selectedAssets.page?.name ?? pages.find((p) => p.id === draft.pageId)?.name ?? "—";
+    const pixelName =
+      selectedAssets.pixel?.name ??
+      availablePixels.find((p) => p.id === draft.pixelId)?.name ??
+      "—";
     const igLabel =
-      igAccounts.find((a) => a.id === draft.instagramActorId)?.username ??
-      igAccounts.find((a) => a.id === draft.instagramActorId)?.name ??
-      (draft.instagramActorId ? draft.instagramActorId : "Seçilmedi");
+      selectedAssets.instagram?.username ??
+      selectedAssets.instagram?.name ??
+      instagramAccounts.find((a) => a.id === draft.instagramActorId)?.username ??
+      instagramAccounts.find((a) => a.id === draft.instagramActorId)?.name ??
+      "Seçilmedi";
 
     return {
+      locationLabel: selectedAssets.location?.displayName ?? metaLocation?.displayName ?? "—",
       pageName,
       pixelName,
       igLabel,
     };
-  }, [draft.pageId, draft.pixelId, draft.instagramActorId, pages, pixels, igAccounts]);
+  }, [selectedAssets, draft.pageId, draft.pixelId, draft.instagramActorId, pages, availablePixels, instagramAccounts, metaLocation]);
 
   function setField<K extends keyof WebsiteSalesDraft>(key: K, value: WebsiteSalesDraft[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
-  async function selectCitySuggestion(s: { placeId: string; displayName: string } | null) {
-    setCitySuggestion(s);
+  function selectMetaLocation(location: MetaLocationOption | null) {
+    setMetaLocation(location);
     setLocationError("");
-    setField("city", null);
-    setField("metaCity", null);
-    setField("metaRegion", null);
-    setField("country", null);
-    setField("metaCountryCode", null);
-    if (!s) return;
-
-    setLocationLoading(true);
-    try {
-      const sel = await fetchGoogleLocationDetails({ placeId: s.placeId, sessionToken: locationSessionToken });
-      setField("city", sel);
-      // şehir seçimi ülkeyi de otomatik doldurur
-      setField("country", sel);
-      setField("metaCountryCode", sel.countryCode.toUpperCase());
-
-      const resolved = await resolveMetaGeoLocation({
-        connectionId: activeConnectionId ?? undefined,
-        adAccountId: selectedAdAccountId ?? undefined,
-        countryCode: sel.countryCode,
-        cityName: sel.cityName,
-        regionName: sel.regionName,
-        displayName: sel.displayName,
-        query: sel.cityName || sel.regionName || sel.displayName,
-      });
-      if (resolved.city) {
-        setField("metaCity", resolved.city);
-        setField("metaRegion", null);
-      } else if (resolved.region) {
-        setField("metaCity", null);
-        setField("metaRegion", resolved.region);
-      } else {
-        setField("metaCity", null);
-        setField("metaRegion", null);
-        setLocationError(
-          `${resolved.error ?? "Şehir Meta hedefleme konumuna eşlenemedi"} — ülke hedeflemesi (${sel.countryCode.toUpperCase()}) kullanılacak.`,
-        );
+    setSelectedAssets((current) => {
+      const next = { ...current };
+      if (!location) {
+        delete next.location;
+        return next;
       }
-    } catch (e) {
-      setLocationError(e instanceof Error ? e.message : "Şehir seçilemedi");
-    } finally {
-      setLocationLoading(false);
-    }
+      next.location = {
+        key: location.key,
+        type: location.type,
+        displayName: location.displayName,
+        countryCode: location.countryCode,
+      };
+      return next;
+    });
+    setDraft((current) => ({
+      ...current,
+      metaCountryCode: location?.countryCode ?? null,
+      metaCity:
+        location?.type === "city"
+          ? {
+              key: location.key,
+              name: location.name,
+              type: "city",
+              countryCode: location.countryCode,
+              countryName: location.countryName,
+              region: location.regionName,
+            }
+          : null,
+      metaRegion:
+        location?.type === "region"
+          ? {
+              key: location.key,
+              name: location.name,
+              type: "region",
+              countryCode: location.countryCode,
+              countryName: location.countryName,
+              region: location.regionName,
+            }
+          : null,
+    }));
+  }
+
+  function selectPage(pageId: string) {
+    const page = pages.find((item) => item.id === pageId);
+    setSelectedAssets((current) => ({
+      ...current,
+      page: page ? { id: page.id, name: page.name } : undefined,
+      instagram: undefined,
+      instantForm: undefined,
+    }));
+    setField("pageId", pageId);
+    setField("instagramActorId", "");
+  }
+
+  function selectPixel(pixelId: string) {
+    const pixel = availablePixels.find((item) => item.id === pixelId);
+    setSelectedAssets((current) => ({
+      ...current,
+      pixel: pixel ? { id: pixel.id, name: pixel.name } : undefined,
+    }));
+    setField("pixelId", pixelId);
+  }
+
+  function selectInstagram(instagramId: string) {
+    const account = instagramAccounts.find((item) => item.id === instagramId);
+    setSelectedAssets((current) => ({
+      ...current,
+      instagram: account
+        ? { id: account.id, username: account.username, name: account.name }
+        : undefined,
+    }));
+    setField("instagramActorId", instagramId);
   }
 
   async function handleImageSelected(file: File | null) {
@@ -284,12 +301,16 @@ export function WebsiteSalesWizard() {
       toast.error("Görsel yüklenmedi. Lütfen görseli yükleyin.");
       return;
     }
-    if (pixels.length === 0) {
-      toast.error("Website satış reklamı oluşturmak için kullanılabilir bir Pixel bulunamadı.");
+    if (availablePixels.length === 0) {
+      toast.error(pixelsHint || "Website satış reklamı için kullanılabilir Pixel bulunamadı.");
       return;
     }
-    if (!draft.pageId) {
+    if (!draft.selectedAssets.page?.id && !draft.pageId) {
       toast.error("Facebook Page seçin.");
+      return;
+    }
+    if (!draft.selectedAssets.location?.key) {
+      toast.error("Meta hedefleme konumunu listeden seçin.");
       return;
     }
 
@@ -303,13 +324,15 @@ export function WebsiteSalesWizard() {
       metaCountryCode: draft.metaCountryCode,
       metaCity: draft.metaCity,
       metaRegion: draft.metaRegion,
+      selectedAssets: draft.selectedAssets,
       ageMin: draft.ageMin,
       ageMax: draft.ageMax,
       gender: draft.gender,
       websiteUrl: draft.websiteUrl,
-      pageId: draft.pageId,
-      instagramActorId: draft.instagramActorId?.trim() ? draft.instagramActorId : undefined,
-      pixelId: draft.pixelId,
+      pageId: draft.selectedAssets.page?.id ?? draft.pageId,
+      instagramActorId:
+        draft.selectedAssets.instagram?.id ?? (draft.instagramActorId?.trim() ? draft.instagramActorId : undefined),
+      pixelId: draft.selectedAssets.pixel?.id ?? draft.pixelId,
       primaryText: draft.primaryText,
       headline: draft.headline,
       description: draft.description?.trim() ? draft.description : undefined,
@@ -443,27 +466,16 @@ export function WebsiteSalesWizard() {
             <CardTitle>2) Hedef kitle</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <LocationAutocomplete
-              label="Şehir"
-              placeholder="Şehir ara (örn: İstanbul)"
-              value={citySuggestion}
-              onSelect={(v) => void selectCitySuggestion(v)}
-              sessionToken={locationSessionToken}
+            <MetaLocationAutocomplete
+              label="Konum"
+              placeholder="Konum ara (örn: İstanbul)"
+              value={metaLocation}
+              onSelect={selectMetaLocation}
+              connectionId={activeConnectionId ?? undefined}
               disabled={!isReady || submitting}
               minChars={2}
               error={errors.city || locationError || errors.country}
             />
-
-            {(draft.city && (draft.metaCity?.key || draft.metaRegion?.key)) && (
-              <div className="sm:col-span-2 text-xs text-muted-foreground">
-                {draft.city.displayName} — Meta hedefleme:{" "}
-                {draft.metaCity?.name ?? draft.metaRegion?.name}
-                {draft.metaRegion?.key && !draft.metaCity?.key ? " (bölge)" : ""}
-              </div>
-            )}
-            {locationLoading && (
-              <div className="sm:col-span-2 text-xs text-muted-foreground">Konum doğrulanıyor...</div>
-            )}
             <div className="space-y-1.5">
               <Label>Min yaş</Label>
               <Input type="number" value={String(draft.ageMin)} onChange={(e) => setField("ageMin", Number(e.target.value))} />
@@ -509,29 +521,17 @@ export function WebsiteSalesWizard() {
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => {
-                        setPagesLoading(true);
-                        setPagesHint("");
-                        fetchPages({
-                          connectionId: activeConnectionId ?? undefined,
-                          adAccountId: selectedAdAccountId ?? undefined,
-                        })
-                          .then(({ pages: nextPages, diagnostics }) => {
-                            setPages(nextPages);
-                            setPagesHint(diagnostics?.hint ?? "");
-                          })
-                          .catch((e) =>
-                            toast.error(e instanceof Error ? e.message : "Page listesi alınamadı"),
-                          )
-                          .finally(() => setPagesLoading(false));
-                      }}
+                      onClick={() => void reloadPages()}
                     >
                       Tekrar Dene
                     </Button>
                   </div>
                 </div>
               ) : (
-                <Select value={draft.pageId} onValueChange={(v) => setField("pageId", v)}>
+                <Select
+                  value={selectedPageId}
+                  onValueChange={selectPage}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Page seçin" />
                   </SelectTrigger>
@@ -550,38 +550,50 @@ export function WebsiteSalesWizard() {
             <div className="space-y-1.5">
               <Label>Instagram hesabı (opsiyonel)</Label>
               <Select
-                value={draft.instagramActorId ?? ""}
-                onValueChange={(v) => setField("instagramActorId", v)}
-                disabled={!draft.pageId || igLoading || igAccounts.length === 0}
+                value={draft.selectedAssets.instagram?.id ?? draft.instagramActorId ?? ""}
+                onValueChange={selectInstagram}
+                disabled={!selectedPageId || instagramLoading || instagramAccounts.length === 0}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={!draft.pageId ? "Önce Page seçin" : igLoading ? "Yükleniyor..." : igAccounts.length === 0 ? "Bulunamadı" : "Seçin"} />
+                  <SelectValue placeholder={!selectedPageId ? "Önce Page seçin" : instagramLoading ? "Yükleniyor..." : instagramAccounts.length === 0 ? "Bulunamadı" : "Seçin"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {igAccounts.map((a) => (
+                  {instagramAccounts.map((a) => (
                     <SelectItem key={a.id} value={a.id}>{a.username ?? a.name ?? a.id}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {instagramHint && (
+                <p className="text-xs text-muted-foreground">{instagramHint}</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
               <Label>Pixel</Label>
-              <Select value={draft.pixelId} onValueChange={(v) => setField("pixelId", v)} disabled={pixelsLoading}>
+              <Select
+                value={draft.selectedAssets.pixel?.id ?? draft.pixelId}
+                onValueChange={selectPixel}
+                disabled={pixelsLoading || availablePixels.length === 0}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder={pixelsLoading ? "Yükleniyor..." : pixels.length === 0 ? "Pixel bulunamadı" : "Pixel seçin"} />
+                  <SelectValue placeholder={pixelsLoading ? "Yükleniyor..." : availablePixels.length === 0 ? "Pixel bulunamadı" : "Pixel seçin"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {pixels.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name ?? p.id}</SelectItem>
+                  {availablePixels.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {errors.pixelId && <p className="text-xs text-destructive">{errors.pixelId}</p>}
-              {pixels.length === 0 && !pixelsLoading && (
+              {availablePixels.length === 0 && !pixelsLoading && (
                 <p className="text-sm text-destructive">
-                  Website satış reklamı oluşturmak için kullanılabilir bir Pixel bulunamadı.
+                  {pixelsHint || "Website satış reklamı için kullanılabilir Pixel bulunamadı."}
                 </p>
+              )}
+              {availablePixels.length === 0 && !pixelsLoading && pixelsHint && (
+                <Button type="button" size="sm" variant="outline" onClick={() => void reloadPixels()}>
+                  Pixel listesini yenile
+                </Button>
               )}
             </div>
           </CardContent>
@@ -667,8 +679,7 @@ export function WebsiteSalesWizard() {
                 <div><b>Günlük bütçe:</b> {draft.dailyBudget} TL</div>
                 <div><b>Tarih:</b> {draft.startDate} {draft.endDate ? `→ ${draft.endDate}` : ""}</div>
                 <div>
-                  <b>Konum:</b> {draft.country?.displayName ?? "—"}
-                  {draft.city ? ` / ${draft.city.displayName}` : ""}
+                  <b>Konum:</b> {review.locationLabel}
                 </div>
                 <div><b>Yaş:</b> {draft.ageMin}–{draft.ageMax}</div>
                 <div><b>Cinsiyet:</b> {draft.gender === "ALL" ? "Tümü" : draft.gender === "MALE" ? "Erkek" : "Kadın"}</div>
@@ -690,7 +701,7 @@ export function WebsiteSalesWizard() {
 
             <Button
               className="w-full"
-              disabled={!canSubmit || pixels.length === 0}
+              disabled={!canSubmit || availablePixels.length === 0}
               onClick={() => void handleCreate()}
             >
               {submitting ? "Oluşturuluyor..." : "Reklamı Oluştur"}

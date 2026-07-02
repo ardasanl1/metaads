@@ -1,3 +1,5 @@
+import type { SelectedMetaAssets } from "@/types/meta-assets";
+
 export type WizardGender = "ALL" | "MALE" | "FEMALE";
 
 export type WizardCtaChoice =
@@ -25,7 +27,7 @@ export type GoogleLocationSelection = {
   longitude?: number;
 };
 
-export type MetaTargetingLocationType = "country" | "region" | "city";
+export type MetaTargetingLocationType = "country" | "region" | "city" | "zip";
 
 export type MetaTargetingLocation = {
   key: string;
@@ -49,6 +51,7 @@ export type WebsiteSalesDraft = {
   metaCountryCode: string | null;
   metaCity?: MetaTargetingLocation | null;
   metaRegion?: MetaTargetingLocation | null;
+  selectedAssets: SelectedMetaAssets;
   ageMin: number;
   ageMax: number;
   gender: WizardGender;
@@ -95,7 +98,7 @@ export type WizardCreateResult = {
   adId?: string;
 };
 
-export type MetaPage = { id: string; name: string; pictureUrl?: string };
+export type MetaPage = { id: string; name: string; pictureUrl?: string; source?: string };
 
 export type MetaPagesDiagnostics = {
   userAccountsCount: number;

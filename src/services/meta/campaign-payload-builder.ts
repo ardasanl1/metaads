@@ -1,5 +1,6 @@
 import { WEBSITE_SALES_RECIPE } from "@/config/campaign-recipes";
 import type { WebsiteSalesDraft, WebsiteSalesSubmit } from "@/types/campaign-wizard";
+import type { SelectedMetaAssets } from "@/types/meta-assets";
 
 export type BuildCampaignPayloadResult = {
   name: string;
@@ -41,6 +42,25 @@ export type BuildAdPayloadResult = {
   status: "PAUSED";
 };
 
+function buildGeoFromSelectedAssets(assets: SelectedMetaAssets): Record<string, unknown> | null {
+  const location = assets.location;
+  if (!location?.key) return null;
+
+  if (location.type === "city") {
+    return { cities: [{ key: location.key }] };
+  }
+  if (location.type === "region") {
+    return { regions: [{ key: location.key }] };
+  }
+  if (location.type === "zip") {
+    return { zips: [{ key: location.key }] };
+  }
+  if (location.type === "country") {
+    return { countries: [location.countryCode.toUpperCase()] };
+  }
+  return null;
+}
+
 export function buildTargetingFromDraft(draft: WebsiteSalesDraft): unknown {
   const genders =
     draft.gender === "ALL" ? undefined : draft.gender === "MALE" ? [1] : [2];
@@ -52,13 +72,21 @@ export function buildTargetingFromDraft(draft: WebsiteSalesDraft): unknown {
 
   if (genders) targeting.genders = genders;
 
-  if (draft.metaCity?.key) {
+  const geo = buildGeoFromSelectedAssets(draft.selectedAssets);
+  if (geo) {
+    targeting.geo_locations = geo;
+  } else if (draft.metaCity?.key) {
     targeting.geo_locations = { cities: [{ key: draft.metaCity.key }] };
   } else if (draft.metaRegion?.key) {
     targeting.geo_locations = { regions: [{ key: draft.metaRegion.key }] };
   } else {
     targeting.geo_locations = {
-      countries: [draft.metaCountryCode ?? draft.country?.countryCode?.toUpperCase() ?? "TR"],
+      countries: [
+        draft.selectedAssets.location?.countryCode?.toUpperCase() ??
+          draft.metaCountryCode ??
+          draft.country?.countryCode?.toUpperCase() ??
+          "TR",
+      ],
     };
   }
   return targeting;
@@ -74,13 +102,22 @@ export function buildTargetingFromSubmit(draft: WebsiteSalesSubmit): unknown {
   };
 
   if (genders) targeting.genders = genders;
-  if (draft.metaCity?.key) {
+
+  const geo = buildGeoFromSelectedAssets(draft.selectedAssets);
+  if (geo) {
+    targeting.geo_locations = geo;
+  } else if (draft.metaCity?.key) {
     targeting.geo_locations = { cities: [{ key: draft.metaCity.key }] };
   } else if (draft.metaRegion?.key) {
     targeting.geo_locations = { regions: [{ key: draft.metaRegion.key }] };
   } else {
     targeting.geo_locations = {
-      countries: [draft.metaCountryCode ?? draft.country?.countryCode?.toUpperCase() ?? "TR"],
+      countries: [
+        draft.selectedAssets.location?.countryCode?.toUpperCase() ??
+          draft.metaCountryCode ??
+          draft.country?.countryCode?.toUpperCase() ??
+          "TR",
+      ],
     };
   }
   return targeting;
@@ -101,8 +138,9 @@ export function buildAdSetPayload(
   draft: WebsiteSalesSubmit,
   campaignId: string,
 ): BuildAdSetPayloadResult {
+  const pixelId = draft.selectedAssets.pixel?.id ?? draft.pixelId;
   const promotedObject = {
-    pixel_id: draft.pixelId,
+    pixel_id: pixelId,
     custom_event_type: WEBSITE_SALES_RECIPE.conversionEvent,
   };
 
@@ -127,10 +165,13 @@ export function buildAdSetPayload(
 export function buildCreativePayload(
   draft: WebsiteSalesSubmit,
 ): BuildCreativePayloadResult {
+  const pageId = draft.selectedAssets.page?.id ?? draft.pageId;
+  const instagramActorId =
+    (draft.selectedAssets.instagram?.id ?? draft.instagramActorId?.trim()) || undefined;
   return {
     name: `${draft.campaignName.trim()} - Creative`,
-    pageId: draft.pageId,
-    instagramActorId: draft.instagramActorId?.trim() || undefined,
+    pageId,
+    instagramActorId,
     websiteUrl: draft.websiteUrl.trim(),
     imageHash: draft.imageHash,
     primaryText: draft.primaryText.trim(),
