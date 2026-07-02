@@ -50,8 +50,14 @@ export async function GET(request: NextRequest) {
       displayName: String(obj.display_name ?? obj.localname ?? "").trim() || placeId,
       countryCode,
       countryName: address.country ?? undefined,
-      regionName: address.state ?? address.region ?? undefined,
-      cityName: address.city ?? address.town ?? address.village ?? undefined,
+      regionName: address.state ?? address.region ?? address.province ?? undefined,
+      cityName:
+        address.city ??
+        address.town ??
+        address.village ??
+        address.province ??
+        address.state ??
+        undefined,
       latitude: obj.centroid?.coordinates?.[1],
       longitude: obj.centroid?.coordinates?.[0],
     };

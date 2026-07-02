@@ -257,11 +257,13 @@ export async function resolveMetaGeoLocation(params: {
   city: MetaTargetingLocation | null;
   region: MetaTargetingLocation | null;
   match: MetaTargetingLocation | null;
+  error?: string | null;
 }> {
   const data = await apiFetch<{
     city: MetaTargetingLocation | null;
     region: MetaTargetingLocation | null;
     match: MetaTargetingLocation | null;
+    error?: string | null;
   }>(
     `/api/meta/targeting-locations${buildQuery({
       resolve: "1",

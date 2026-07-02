@@ -66,18 +66,26 @@ export async function GET(request: NextRequest) {
               supportsRadius: Boolean(match.supports_radius),
             }
           : null,
+        error: resolved.error ?? null,
       });
     }
 
     if (!query) return jsonError("query gerekli", 400);
-    if (locationType !== "country" && locationType !== "region" && locationType !== "city") {
+    if (
+      locationType &&
+      locationType !== "country" &&
+      locationType !== "region" &&
+      locationType !== "city"
+    ) {
       return jsonError("locationType country|region|city olmalı", 400);
     }
 
     const items = await searchTargetingLocations({
       query,
       countryCode: countryCode || undefined,
-      locationType: locationType as MetaTargetingLocationType,
+      locationType: locationType
+        ? (locationType as MetaTargetingLocationType)
+        : undefined,
       connectionId,
     });
 

@@ -571,8 +571,10 @@ export type MetaPagesResult = {
 const PAGE_LIST_PERMISSIONS = [
   "pages_show_list",
   "pages_read_engagement",
+  "pages_manage_ads",
   "business_management",
   "ads_management",
+  "ads_read",
 ] as const;
 
 async function getGrantedPermissions(connectionId?: string): Promise<string[]> {
@@ -602,6 +604,11 @@ export async function getFacebookPages(options?: {
     missingPermissions: [],
   };
 
+  const connection = options?.connectionId
+    ? await getMetaConnectionById(options.connectionId)
+    : await getMetaConnection();
+  const metaUserId = connection?.metaUserId?.trim() || "";
+
   const granted = await getGrantedPermissions(options?.connectionId);
   diagnostics.missingPermissions = PAGE_LIST_PERMISSIONS.filter(
     (permission) => !granted.includes(permission),
@@ -621,31 +628,58 @@ export async function getFacebookPages(options?: {
       error instanceof Error ? error.message : "me/accounts isteği başarısız";
   }
 
+  if (metaUserId) {
+    try {
+      const userAccounts = await metaRequest<{ data?: MetaPage[] }>(
+        `${metaUserId}/accounts?fields=id,name,picture{url}&limit=200`,
+        { connectionId: options?.connectionId },
+      );
+      if (userAccounts.data) {
+        collected.push(...userAccounts.data);
+        diagnostics.userAccountsCount += userAccounts.data.length;
+      }
+    } catch (error) {
+      if (!diagnostics.userAccountsError) {
+        diagnostics.userAccountsError =
+          error instanceof Error ? error.message : "user/accounts isteği başarısız";
+      }
+    }
+  }
+
   try {
     const token = await getStoredAccessToken(options?.connectionId);
     const businesses = await getBusinesses({ token });
     for (const b of businesses) {
       try {
-        const owned = await metaRequest<{ data?: MetaPage[] }>(
+        const owned = await fetchPaged<MetaPage>(
           `${b.id}/owned_pages?fields=id,name,picture{url}&limit=200`,
-          { connectionId: options?.connectionId },
+          200,
+          token,
         );
-        if (owned.data) {
-          collected.push(...owned.data);
-          diagnostics.businessOwnedCount += owned.data.length;
-        }
+        collected.push(...owned);
+        diagnostics.businessOwnedCount += owned.length;
       } catch {
         // ignore per-business failures
       }
       try {
-        const client = await metaRequest<{ data?: MetaPage[] }>(
+        const client = await fetchPaged<MetaPage>(
           `${b.id}/client_pages?fields=id,name,picture{url}&limit=200`,
-          { connectionId: options?.connectionId },
+          200,
+          token,
         );
-        if (client.data) {
-          collected.push(...client.data);
-          diagnostics.businessClientCount += client.data.length;
-        }
+        collected.push(...client);
+        diagnostics.businessClientCount += client.length;
+      } catch {
+        // ignore per-business failures
+      }
+      try {
+        const pages = await fetchPaged<MetaPage>(
+          `${b.id}/pages?fields=id,name,picture{url}&limit=200`,
+          200,
+          token,
+        );
+        collected.push(...pages);
+        diagnostics.businessOwnedCount += pages.length;
       } catch {
         // ignore per-business failures
       }
@@ -657,14 +691,13 @@ export async function getFacebookPages(options?: {
   const accountPath = options?.adAccountId ? normalizeAdAccountId(options.adAccountId) : "";
   if (accountPath) {
     try {
-      const promoted = await metaRequest<{ data?: MetaPage[] }>(
+      const promoted = await fetchPaged<MetaPage>(
         `${accountPath}/promote_pages?fields=id,name,picture{url}&limit=200`,
-        { connectionId: options?.connectionId },
+        200,
+        await getStoredAccessToken(options?.connectionId),
       );
-      if (promoted.data) {
-        collected.push(...promoted.data);
-        diagnostics.adAccountCount = promoted.data.length;
-      }
+      collected.push(...promoted);
+      diagnostics.adAccountCount = promoted.length;
     } catch (error) {
       diagnostics.adAccountError =
         error instanceof Error ? error.message : "promote_pages isteği başarısız";
@@ -678,18 +711,21 @@ export async function getFacebookPages(options?: {
   const pages = Array.from(map.values());
 
   if (pages.length === 0) {
-    if (diagnostics.missingPermissions.includes("pages_show_list")) {
-      diagnostics.hint =
-        "Token'da pages_show_list izni yok. Meta bağlantısını bu izinle yeniden oluşturun.";
+    const missingPagePerms = ["pages_show_list", "pages_manage_ads"].filter((permission) =>
+      diagnostics.missingPermissions.includes(permission),
+    );
+    if (missingPagePerms.length > 0) {
+      diagnostics.hint = `Token'da eksik izinler: ${missingPagePerms.join(", ")}. Meta token'ını bu izinlerle yeniden oluşturun.`;
     } else if (diagnostics.userAccountsError && diagnostics.adAccountError) {
-      diagnostics.hint =
-        "Page listesi alınamadı. Token geçerliliğini ve reklam hesabı erişimini kontrol edin.";
+      diagnostics.hint = `Page API hataları — kullanıcı: ${diagnostics.userAccountsError}; reklam hesabı: ${diagnostics.adAccountError}`;
     } else if (!accountPath) {
       diagnostics.hint =
-        "Page bulunamadı. Önce bir reklam hesabı seçin veya token'ın Business/Page erişimini kontrol edin.";
+        "Page bulunamadı. Önce bir reklam hesabı seçin veya Page ID'yi manuel girin.";
+    } else if (diagnostics.adAccountError) {
+      diagnostics.hint = `Reklam hesabı Page listesi alınamadı: ${diagnostics.adAccountError}`;
     } else {
       diagnostics.hint =
-        "Bu kullanıcı veya reklam hesabı için tanımlı Facebook Page bulunamadı.";
+        "Bu token ile erişilebilir Facebook Page bulunamadı. Page ID'yi manuel girebilirsiniz.";
     }
   }
 
@@ -803,34 +839,82 @@ function pickBestTargetingMatch(
   return pool[0] ?? null;
 }
 
+function normalizeTargetingLocation(
+  raw: Partial<MetaTargetingLocation> & { key?: string | number },
+  fallbackType?: MetaTargetingLocationType,
+): MetaTargetingLocation | null {
+  const key = raw.key === undefined || raw.key === null ? "" : String(raw.key).trim();
+  const name = raw.name?.trim() ?? "";
+  if (!key || !name) return null;
+
+  const type =
+    raw.type === "country" || raw.type === "region" || raw.type === "city"
+      ? raw.type
+      : fallbackType ?? "city";
+
+  return {
+    key,
+    name,
+    type,
+    country_code: raw.country_code?.trim().toUpperCase() ?? "",
+    country_name: raw.country_name,
+    region: raw.region,
+    region_id: raw.region_id === undefined ? undefined : String(raw.region_id),
+    supports_region: raw.supports_region,
+    supports_radius: raw.supports_radius,
+  };
+}
+
+function buildTargetingSearchPath(input: {
+  query: string;
+  countryCode?: string;
+  locationTypes?: MetaTargetingLocationType[];
+  limit?: number;
+}): string {
+  const parts = [
+    `type=adgeolocation`,
+    `q=${encodeURIComponent(input.query.trim())}`,
+    `limit=${input.limit ?? 25}`,
+  ];
+  if (input.locationTypes?.length) {
+    parts.push(`location_types=${encodeURIComponent(JSON.stringify(input.locationTypes))}`);
+  }
+  if (input.countryCode?.trim()) {
+    parts.push(`country_code=${encodeURIComponent(input.countryCode.trim().toUpperCase())}`);
+  }
+  return `search?${parts.join("&")}`;
+}
+
 export async function searchTargetingLocations(input: {
   query: string;
   countryCode?: string;
-  locationType: MetaTargetingLocationType | MetaTargetingLocationType[];
+  locationType?: MetaTargetingLocationType | MetaTargetingLocationType[];
   connectionId?: string;
   limit?: number;
 }): Promise<MetaTargetingLocation[]> {
   const q = input.query.trim();
   if (!q) return [];
 
-  const locationTypes = Array.isArray(input.locationType)
-    ? input.locationType
-    : [input.locationType];
+  const locationTypes = input.locationType
+    ? Array.isArray(input.locationType)
+      ? input.locationType
+      : [input.locationType]
+    : undefined;
 
-  const params = new URLSearchParams();
-  params.set("type", "adgeolocation");
-  params.set("q", q);
-  params.set("limit", String(input.limit ?? 25));
-  params.set("location_types", JSON.stringify(locationTypes));
-  if (input.countryCode?.trim()) {
-    params.set("country_code", input.countryCode.trim().toUpperCase());
-  }
-
-  const result = await metaRequest<{ data?: MetaTargetingLocation[] }>(
-    `search?${params.toString()}`,
+  const result = await metaRequest<{ data?: Array<Partial<MetaTargetingLocation> & { key?: string | number }> }>(
+    buildTargetingSearchPath({
+      query: q,
+      countryCode: input.countryCode,
+      locationTypes,
+      limit: input.limit,
+    }),
     { connectionId: input.connectionId },
   );
-  return result.data ?? [];
+
+  const fallbackType = Array.isArray(locationTypes) ? locationTypes[0] : locationTypes;
+  return (result.data ?? [])
+    .map((item) => normalizeTargetingLocation(item, fallbackType))
+    .filter((item): item is MetaTargetingLocation => Boolean(item));
 }
 
 export async function resolveMetaGeoLocation(input: {
@@ -839,47 +923,89 @@ export async function resolveMetaGeoLocation(input: {
   displayName?: string;
   countryCode: string;
   connectionId?: string;
-}): Promise<{ city?: MetaTargetingLocation; region?: MetaTargetingLocation }> {
+}): Promise<{ city?: MetaTargetingLocation; region?: MetaTargetingLocation; error?: string }> {
   const countryCode = input.countryCode.trim().toUpperCase();
   const queries = buildLocationQueries(input);
-  if (queries.length === 0) return {};
+  if (queries.length === 0) {
+    return { error: "Konum adı bulunamadı" };
+  }
+
+  let lastError: string | undefined;
 
   for (const query of queries) {
-    const cityCandidates = await searchTargetingLocations({
-      query,
-      countryCode,
-      locationType: "city",
-      connectionId: input.connectionId,
-      limit: 25,
-    });
-    const cityMatch = pickBestTargetingMatch(cityCandidates, query, countryCode);
-    if (cityMatch) return { city: cityMatch };
+    const attempts: Array<{
+      run: () => Promise<MetaTargetingLocation[]>;
+      pick: (items: MetaTargetingLocation[]) => MetaTargetingLocation | null;
+    }> = [
+      {
+        run: () =>
+          searchTargetingLocations({
+            query,
+            countryCode,
+            locationType: "city",
+            connectionId: input.connectionId,
+            limit: 25,
+          }),
+        pick: (items) => items.find((item) => item.type === "city") ?? items[0] ?? null,
+      },
+      {
+        run: () =>
+          searchTargetingLocations({
+            query,
+            countryCode,
+            locationType: "region",
+            connectionId: input.connectionId,
+            limit: 25,
+          }),
+        pick: (items) => items.find((item) => item.type === "region") ?? items[0] ?? null,
+      },
+      {
+        run: () =>
+          searchTargetingLocations({
+            query,
+            countryCode,
+            locationType: ["city", "region"],
+            connectionId: input.connectionId,
+            limit: 25,
+          }),
+        pick: (items) => pickBestTargetingMatch(items, query, countryCode),
+      },
+      {
+        run: () =>
+          searchTargetingLocations({
+            query,
+            countryCode,
+            connectionId: input.connectionId,
+            limit: 25,
+          }),
+        pick: (items) => pickBestTargetingMatch(items, query, countryCode),
+      },
+      {
+        run: () =>
+          searchTargetingLocations({
+            query,
+            connectionId: input.connectionId,
+            limit: 25,
+          }),
+        pick: (items) => pickBestTargetingMatch(items, query, countryCode),
+      },
+    ];
 
-    const regionCandidates = await searchTargetingLocations({
-      query,
-      countryCode,
-      locationType: "region",
-      connectionId: input.connectionId,
-      limit: 25,
-    });
-    const regionMatch = pickBestTargetingMatch(regionCandidates, query, countryCode);
-    if (regionMatch) return { region: regionMatch };
-
-    const mixedCandidates = await searchTargetingLocations({
-      query,
-      countryCode,
-      locationType: ["city", "region"],
-      connectionId: input.connectionId,
-      limit: 25,
-    });
-    const mixedMatch = pickBestTargetingMatch(mixedCandidates, query, countryCode);
-    if (mixedMatch) {
-      if (mixedMatch.type === "region") return { region: mixedMatch };
-      return { city: mixedMatch };
+    for (const attempt of attempts) {
+      try {
+        const items = await attempt.run();
+        const match = attempt.pick(items);
+        if (!match) continue;
+        if (match.type === "region") return { region: match };
+        return { city: match };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : "Meta konum araması başarısız";
+      }
     }
   }
 
-  return {};
+  if (lastError) return { error: lastError };
+  return { error: "Meta hedefleme kataloğunda eşleşen konum bulunamadı" };
 }
 
 type PagedResult<T> = {

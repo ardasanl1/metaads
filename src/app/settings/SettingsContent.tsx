@@ -153,7 +153,8 @@ function SettingsBody() {
                 className="bg-background text-foreground"
               />
               <p className="text-xs text-muted-foreground">
-                Token işletme hesabına ait olmalıdır. Aynı Meta kullanıcısı için token güncellenir.
+                Token işletme hesabına ait olmalıdır. Gerekli izinler: pages_show_list,
+                pages_manage_ads, business_management, ads_management, ads_read.
               </p>
             </div>
 
