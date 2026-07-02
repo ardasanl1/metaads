@@ -761,10 +761,10 @@ export async function getFacebookPageOptions(input?: {
       diagnostics.hint = `Facebook Page listeleme yetkisi bulunmuyor: ${missingPagePerms.join(", ")}.`;
     } else if (!businessId && !accountPath) {
       diagnostics.hint =
-        "İşletme (Business) ID bulunamadı. Ayarlar'dan reklam hesabı ekleyin veya Business Manager ID girin.";
+        "İşletme (Business) ID bulunamadı. Ayarlar'dan reklam hesabı ekleyin.";
     } else if (!businessId && accountPath) {
       diagnostics.hint =
-        "Reklam hesabından Business ID çözülemedi. Token'ın bu hesaba erişimi olduğundan emin olun veya Ayarlar'dan Business Manager ID girin.";
+        "Reklam hesabından Business ID çözülemedi. Token'ın bu hesaba erişimi olduğundan emin olun.";
     } else if (diagnostics.userAccountsError && diagnostics.adAccountError) {
       diagnostics.hint = `Page API hataları — kullanıcı: ${diagnostics.userAccountsError}; reklam hesabı: ${diagnostics.adAccountError}`;
     } else if (diagnostics.adAccountError) {
