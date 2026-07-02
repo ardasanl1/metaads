@@ -550,9 +550,12 @@ export async function createAdCreative(
   return metaRequest<{ id: string }>(`${accountPath}/adcreatives`, { method: "POST", body });
 }
 
-export type MetaPage = { id: string; name: string };
-export async function getFacebookPages(): Promise<MetaPage[]> {
-  const result = await metaRequest<{ data?: MetaPage[] }>("me/accounts?fields=id,name&limit=200");
+export type MetaPage = { id: string; name: string; picture?: { data?: { url?: string } } };
+export async function getFacebookPages(options?: { connectionId?: string }): Promise<MetaPage[]> {
+  const result = await metaRequest<{ data?: MetaPage[] }>(
+    "me/accounts?fields=id,name,picture{url}&limit=200",
+    { connectionId: options?.connectionId },
+  );
   return result.data ?? [];
 }
 

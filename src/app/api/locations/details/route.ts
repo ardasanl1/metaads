@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
 
     const obj = raw as {
       place_id?: unknown;
+      country_code?: unknown;
       localname?: unknown;
       display_name?: unknown;
       address?: Record<string, string>;
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
     };
 
     const address = obj.address ?? {};
-    const countryCode = (address.country_code ?? "").toUpperCase();
+    const countryCode = String(obj.country_code ?? address.country_code ?? "").toUpperCase();
     const selection: GoogleLocationSelection = {
       placeId,
       displayName: String(obj.display_name ?? obj.localname ?? "").trim() || placeId,

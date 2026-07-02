@@ -83,7 +83,7 @@ function defaultDraft(): WebsiteSalesDraft {
 
 export function WebsiteSalesWizard() {
   const router = useRouter();
-  const { isReady, status, loading: accountLoading } = useMetaAccount();
+  const { isReady, status, loading: accountLoading, activeConnectionId } = useMetaAccount();
 
   const [draft, setDraft] = useState<WebsiteSalesDraft>(defaultDraft());
   const [locationSessionToken] = useState(() => crypto.randomUUID());
@@ -119,7 +119,7 @@ export function WebsiteSalesWizard() {
     if (!isReady) return;
 
     setPagesLoading(true);
-    fetchPages()
+    fetchPages({ connectionId: activeConnectionId ?? undefined })
       .then(setPages)
       .catch((e) => toast.error(e instanceof Error ? e.message : "Page listesi alınamadı"))
       .finally(() => setPagesLoading(false));
@@ -136,7 +136,7 @@ export function WebsiteSalesWizard() {
       })
       .catch((e) => toast.error(e instanceof Error ? e.message : "Pixel listesi alınamadı"))
       .finally(() => setPixelsLoading(false));
-  }, [accountLoading, status?.connected, isReady]);
+  }, [accountLoading, status?.connected, isReady, activeConnectionId]);
 
   useEffect(() => {
     if (!draft.pageId) {
@@ -514,16 +514,45 @@ export function WebsiteSalesWizard() {
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <Label>Facebook Page</Label>
-              <Select value={draft.pageId} onValueChange={(v) => setField("pageId", v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder={pagesLoading ? "Yükleniyor..." : "Page seçin"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {pages.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {pagesLoading ? (
+                <p className="text-sm text-muted-foreground">Page listesi yükleniyor...</p>
+              ) : pages.length === 0 ? (
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Hiç Facebook Page bulunamadı. Bu genelde token’da gerekli Page izinleri olmadığı
+                  anlamına gelir.
+                  <div className="mt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setPagesLoading(true);
+                        fetchPages({ connectionId: activeConnectionId ?? undefined })
+                          .then(setPages)
+                          .catch((e) =>
+                            toast.error(e instanceof Error ? e.message : "Page listesi alınamadı"),
+                          )
+                          .finally(() => setPagesLoading(false));
+                      }}
+                    >
+                      Tekrar Dene
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Select value={draft.pageId} onValueChange={(v) => setField("pageId", v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Page seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pages.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               {errors.pageId && <p className="text-xs text-destructive">{errors.pageId}</p>}
             </div>
 

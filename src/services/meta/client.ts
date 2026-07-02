@@ -210,8 +210,10 @@ export async function uploadAdImage(file: File): Promise<{ imageHash: string }> 
   });
 }
 
-export async function fetchPages(): Promise<MetaPage[]> {
-  const data = await apiFetch<{ pages: MetaPage[] }>("/api/meta/pages");
+export async function fetchPages(params?: { connectionId?: string }): Promise<MetaPage[]> {
+  const data = await apiFetch<{ pages: MetaPage[] }>(
+    `/api/meta/pages${buildQuery({ connectionId: params?.connectionId })}`,
+  );
   return data.pages;
 }
 
