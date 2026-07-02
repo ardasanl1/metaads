@@ -621,8 +621,12 @@ export type MetaPagesDiagnostics = {
   businessOwnedCount: number;
   businessClientCount: number;
   adAccountCount: number;
+  assignedPagesCount: number;
+  pendingClientPagesCount: number;
+  creativePagesCount: number;
   businessesScanned: number;
   userAccountsError?: string;
+  assignedPagesError?: string;
   businessPagesError?: string;
   adAccountError?: string;
   missingPermissions: string[];
@@ -658,6 +662,153 @@ async function getGrantedPermissions(connectionId?: string): Promise<string[]> {
 }
 
 const PAGE_FETCH_LIMIT = 500;
+
+type PageEdgeFetchResult = {
+  pages: MetaPage[];
+  error?: string;
+};
+
+async function fetchPageEdge(edgeBase: string, token: string): Promise<PageEdgeFetchResult> {
+  const fieldVariants = ["id,name", "id,name,picture{url}"];
+  let lastError: string | undefined;
+
+  for (const fields of fieldVariants) {
+    try {
+      const pages = await fetchPaged<MetaPage>(
+        `${edgeBase}?fields=${fields}&limit=200`,
+        PAGE_FETCH_LIMIT,
+        token,
+      );
+      return { pages };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : "Page listesi alınamadı";
+    }
+  }
+
+  return { pages: [], error: lastError };
+}
+
+function extractPageIdFromObjectStorySpec(spec: unknown): string | undefined {
+  if (!spec) return undefined;
+  let parsed: unknown = spec;
+  if (typeof spec === "string") {
+    try {
+      parsed = JSON.parse(spec) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  if (typeof parsed === "object" && parsed !== null && "page_id" in parsed) {
+    const pageId = (parsed as { page_id?: string | number }).page_id;
+    return pageId != null ? String(pageId) : undefined;
+  }
+  return undefined;
+}
+
+async function discoverPagesFromExistingCreatives(
+  accountPath: string,
+  token: string,
+): Promise<MetaPage[]> {
+  const pageIds = new Set<string>();
+
+  try {
+    const creatives = await fetchPaged<{ object_story_spec?: unknown }>(
+      `${accountPath}/adcreatives?fields=object_story_spec&limit=100`,
+      100,
+      token,
+    );
+    for (const creative of creatives) {
+      const pageId = extractPageIdFromObjectStorySpec(creative.object_story_spec);
+      if (pageId) pageIds.add(pageId);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (pageIds.size === 0) {
+    try {
+      const ads = await fetchPaged<{ creative?: { object_story_spec?: unknown } }>(
+        `${accountPath}/ads?fields=creative{object_story_spec}&limit=100`,
+        100,
+        token,
+      );
+      for (const ad of ads) {
+        const pageId = extractPageIdFromObjectStorySpec(ad.creative?.object_story_spec);
+        if (pageId) pageIds.add(pageId);
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  const pages: MetaPage[] = [];
+  for (const pageId of pageIds) {
+    try {
+      const page = await metaRequest<{ id: string; name?: string }>(`${pageId}?fields=id,name`, {
+        token,
+      });
+      pages.push({ id: page.id, name: page.name?.trim() || page.id });
+    } catch {
+      pages.push({ id: pageId, name: pageId });
+    }
+  }
+
+  return pages;
+}
+
+function buildEmptyPagesHint(input: {
+  businessIds: string[];
+  accountPath: string;
+  diagnostics: MetaPagesDiagnostics;
+  primaryBusinessId: string;
+}): string {
+  const { businessIds, accountPath, diagnostics, primaryBusinessId } = input;
+  const missingPagePerms = ["pages_show_list", "pages_manage_ads"].filter((permission) =>
+    diagnostics.missingPermissions.includes(permission),
+  );
+
+  if (missingPagePerms.length > 0) {
+    return `Facebook Page listeleme yetkisi bulunmuyor: ${missingPagePerms.join(", ")}. Token'ı bu izinlerle yenileyin.`;
+  }
+
+  if (businessIds.length === 0 && !accountPath) {
+    return "İşletme (Business) bulunamadı. Ayarlar'dan reklam hesabı ekleyin veya token'ı yenileyin.";
+  }
+
+  if (businessIds.length === 0 && accountPath) {
+    return "Reklam hesabından Business çözülemedi. Token'ın bu hesaba erişimi olduğundan emin olun.";
+  }
+
+  const scanSummary = [
+    `işletme owned ${diagnostics.businessOwnedCount}`,
+    `client ${diagnostics.businessClientCount}`,
+    `atanmış ${diagnostics.assignedPagesCount}`,
+    `reklam hesabı ${diagnostics.adAccountCount}`,
+    `me/accounts ${diagnostics.userAccountsCount}`,
+  ].join(", ");
+
+  if (diagnostics.userAccountsError && diagnostics.adAccountError) {
+    return `Page API hataları — kullanıcı: ${diagnostics.userAccountsError}; reklam hesabı: ${diagnostics.adAccountError}`;
+  }
+  if (diagnostics.adAccountError) {
+    return `Reklam hesabı Page listesi alınamadı: ${diagnostics.adAccountError}`;
+  }
+  if (diagnostics.userAccountsError) {
+    return `Kullanıcı Page listesi alınamadı: ${diagnostics.userAccountsError}`;
+  }
+  if (diagnostics.assignedPagesError) {
+    return `Atanmış Page listesi alınamadı: ${diagnostics.assignedPagesError}`;
+  }
+  if (diagnostics.businessPagesError) {
+    return `Business Page listesi alınamadı: ${diagnostics.businessPagesError}`;
+  }
+
+  if (primaryBusinessId) {
+    return `${businessIds.length} işletme tarandı (${scanSummary}). System User token kullanıyorsanız Business Manager → System Users altında Page'lerin bu kullanıcıya atandığını ve reklam hesabına bağlı olduğunu doğrulayın.`;
+  }
+
+  return `Erişilebilir Facebook Page bulunamadı (${scanSummary}).`;
+}
 
 async function collectBusinessIdsForPageDiscovery(input: {
   connectionId?: string;
@@ -711,6 +862,18 @@ async function collectBusinessIdsForPageDiscovery(input: {
     addBusiness(business.id);
   }
 
+  if (input.adAccountId?.trim()) {
+    try {
+      const account = await metaRequest<{ business?: { id?: string } }>(
+        `${normalizeAdAccountId(input.adAccountId)}?fields=business{id}`,
+        { token: input.token },
+      );
+      addBusiness(account.business?.id, true);
+    } catch {
+      // ignore
+    }
+  }
+
   if (!primaryBusinessId && businessIds.size > 0) {
     primaryBusinessId = Array.from(businessIds)[0];
   }
@@ -732,6 +895,9 @@ export async function getFacebookPageOptions(input?: {
     businessOwnedCount: 0,
     businessClientCount: 0,
     adAccountCount: 0,
+    assignedPagesCount: 0,
+    pendingClientPagesCount: 0,
+    creativePagesCount: 0,
     businessesScanned: 0,
     missingPermissions: [],
   };
@@ -771,71 +937,80 @@ export async function getFacebookPageOptions(input?: {
 
   const businessPageErrors: string[] = [];
   for (const businessId of businessIds) {
-    try {
-      const owned = await fetchPaged<MetaPage>(
-        `${businessId}/owned_pages?fields=id,name,picture{url}&limit=200`,
-        PAGE_FETCH_LIMIT,
-        token,
-      );
-      addPages(owned, "business_owned");
-      diagnostics.businessOwnedCount += owned.length;
-    } catch (error) {
-      businessPageErrors.push(
-        error instanceof Error ? error.message : `${businessId}/owned_pages başarısız`,
-      );
+    const owned = await fetchPageEdge(`${businessId}/owned_pages`, token);
+    addPages(owned.pages, "business_owned");
+    diagnostics.businessOwnedCount += owned.pages.length;
+    if (owned.error && owned.pages.length === 0) {
+      businessPageErrors.push(`${businessId}/owned_pages: ${owned.error}`);
     }
-    try {
-      const client = await fetchPaged<MetaPage>(
-        `${businessId}/client_pages?fields=id,name,picture{url}&limit=200`,
-        PAGE_FETCH_LIMIT,
-        token,
-      );
-      addPages(client, "business_client");
-      diagnostics.businessClientCount += client.length;
-    } catch (error) {
-      businessPageErrors.push(
-        error instanceof Error ? error.message : `${businessId}/client_pages başarısız`,
-      );
+
+    const client = await fetchPageEdge(`${businessId}/client_pages`, token);
+    addPages(client.pages, "business_client");
+    diagnostics.businessClientCount += client.pages.length;
+    if (client.error && client.pages.length === 0) {
+      businessPageErrors.push(`${businessId}/client_pages: ${client.error}`);
     }
+
+    const pending = await fetchPageEdge(`${businessId}/pending_client_pages`, token);
+    addPages(pending.pages, "pending_client");
+    diagnostics.pendingClientPagesCount += pending.pages.length;
   }
   if (businessPageErrors.length > 0) {
     diagnostics.businessPagesError = businessPageErrors[0];
   }
 
-  try {
-    const userPages = await fetchPaged<MetaPage>(
-      "me/accounts?fields=id,name,picture{url}&limit=200",
-      PAGE_FETCH_LIMIT,
-      token,
-    );
-    addPages(userPages, "user");
-    diagnostics.userAccountsCount = userPages.length;
-  } catch (error) {
-    diagnostics.userAccountsError =
-      error instanceof Error ? error.message : "me/accounts isteği başarısız";
+  const userResult = await fetchPageEdge("me/accounts", token);
+  addPages(userResult.pages, "user");
+  diagnostics.userAccountsCount = userResult.pages.length;
+  if (userResult.error && userResult.pages.length === 0) {
+    diagnostics.userAccountsError = userResult.error;
+  }
+
+  const assignedResult = await fetchPageEdge("me/assigned_pages", token);
+  addPages(assignedResult.pages, "assigned_user");
+  diagnostics.assignedPagesCount = assignedResult.pages.length;
+  if (assignedResult.error && assignedResult.pages.length === 0) {
+    diagnostics.assignedPagesError = assignedResult.error;
   }
 
   const accountPath = input?.adAccountId ? normalizeAdAccountId(input.adAccountId) : "";
   if (accountPath) {
+    const promoted = await fetchPageEdge(`${accountPath}/promote_pages`, token);
+    addPages(promoted.pages, "ad_account");
+    diagnostics.adAccountCount += promoted.pages.length;
+    if (promoted.error && promoted.pages.length === 0) {
+      diagnostics.adAccountError = promoted.error;
+    }
+
     try {
-      const promoted = await fetchPaged<MetaPage>(
-        `${accountPath}/promote_pages?fields=id,name,picture{url}&limit=200`,
-        PAGE_FETCH_LIMIT,
-        token,
-      );
-      addPages(promoted, "ad_account");
-      diagnostics.adAccountCount = promoted.length;
+      const account = await metaRequest<{
+        promote_pages?: { data?: MetaPage[] };
+      }>(`${accountPath}?fields=promote_pages.limit(200){id,name}`, { token });
+      const nested = account.promote_pages?.data ?? [];
+      addPages(nested, "ad_account");
+      diagnostics.adAccountCount += nested.length;
     } catch (error) {
-      diagnostics.adAccountError =
-        error instanceof Error ? error.message : "promote_pages isteği başarısız";
+      if (!diagnostics.adAccountError) {
+        diagnostics.adAccountError =
+          error instanceof Error ? error.message : "promote_pages alanı okunamadı";
+      }
+    }
+
+    if (byId.size === 0) {
+      const creativePages = await discoverPagesFromExistingCreatives(accountPath, token);
+      addPages(creativePages, "existing_creative");
+      diagnostics.creativePagesCount = creativePages.length;
     }
   }
 
   const sourcePriority: Record<MetaPageOption["source"], number> = {
     ad_account: 0,
-    business_owned: 1,
-    business_client: 2,
-    user: 3,
+    assigned_user: 1,
+    business_owned: 2,
+    business_client: 3,
+    pending_client: 4,
+    existing_creative: 5,
+    user: 6,
   };
   const pages = Array.from(byId.values()).sort((a, b) => {
     const priorityDiff = sourcePriority[a.source] - sourcePriority[b.source];
@@ -843,31 +1018,21 @@ export async function getFacebookPageOptions(input?: {
     return a.name.localeCompare(b.name, "tr");
   });
 
+  diagnostics.businessOwnedCount = pages.filter((page) => page.source === "business_owned").length;
+  diagnostics.businessClientCount = pages.filter((page) => page.source === "business_client").length;
+  diagnostics.pendingClientPagesCount = pages.filter((page) => page.source === "pending_client").length;
+  diagnostics.userAccountsCount = pages.filter((page) => page.source === "user").length;
+  diagnostics.assignedPagesCount = pages.filter((page) => page.source === "assigned_user").length;
+  diagnostics.adAccountCount = pages.filter((page) => page.source === "ad_account").length;
+  diagnostics.creativePagesCount = pages.filter((page) => page.source === "existing_creative").length;
+
   if (pages.length === 0) {
-    const missingPagePerms = ["pages_show_list", "pages_manage_ads"].filter((permission) =>
-      diagnostics.missingPermissions.includes(permission),
-    );
-    if (missingPagePerms.length > 0) {
-      diagnostics.hint = `Facebook Page listeleme yetkisi bulunmuyor: ${missingPagePerms.join(", ")}.`;
-    } else if (businessIds.length === 0 && !accountPath) {
-      diagnostics.hint =
-        "İşletme (Business) bulunamadı. Ayarlar'dan reklam hesabı ekleyin veya token'ı yenileyin.";
-    } else if (businessIds.length === 0 && accountPath) {
-      diagnostics.hint =
-        "Reklam hesabından Business çözülemedi. Token'ın bu hesaba erişimi olduğundan emin olun.";
-    } else if (diagnostics.userAccountsError && diagnostics.adAccountError) {
-      diagnostics.hint = `Page API hataları — kullanıcı: ${diagnostics.userAccountsError}; reklam hesabı: ${diagnostics.adAccountError}`;
-    } else if (diagnostics.adAccountError) {
-      diagnostics.hint = `Reklam hesabı Page listesi alınamadı: ${diagnostics.adAccountError}`;
-    } else if (diagnostics.userAccountsError) {
-      diagnostics.hint = `Kullanıcı Page listesi alınamadı: ${diagnostics.userAccountsError}`;
-    } else if (diagnostics.businessPagesError) {
-      diagnostics.hint = `Business Page listesi alınamadı: ${diagnostics.businessPagesError}`;
-    } else if (primaryBusinessId) {
-      diagnostics.hint = `${businessIds.length} işletme tarandı; erişilebilir Facebook Page bulunamadı.`;
-    } else {
-      diagnostics.hint = "Erişilebilir Facebook Page bulunamadı.";
-    }
+    diagnostics.hint = buildEmptyPagesHint({
+      businessIds,
+      accountPath,
+      diagnostics,
+      primaryBusinessId,
+    });
   }
 
   return { pages, diagnostics };

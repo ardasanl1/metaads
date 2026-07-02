@@ -105,8 +105,12 @@ export type MetaPagesDiagnostics = {
   businessOwnedCount: number;
   businessClientCount: number;
   adAccountCount: number;
+  assignedPagesCount?: number;
+  pendingClientPagesCount?: number;
+  creativePagesCount?: number;
   businessesScanned?: number;
   userAccountsError?: string;
+  assignedPagesError?: string;
   businessPagesError?: string;
   adAccountError?: string;
   missingPermissions: string[];

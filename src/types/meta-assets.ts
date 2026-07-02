@@ -25,7 +25,14 @@ export type MetaPageOption = {
   id: string;
   name: string;
   pictureUrl?: string;
-  source: "user" | "business_owned" | "business_client" | "ad_account";
+  source:
+    | "user"
+    | "business_owned"
+    | "business_client"
+    | "ad_account"
+    | "assigned_user"
+    | "pending_client"
+    | "existing_creative";
 };
 
 export type MetaInstagramOption = {
