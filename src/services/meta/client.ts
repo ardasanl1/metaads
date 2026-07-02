@@ -12,6 +12,13 @@ import type {
   ParsedInsights,
   QuickDateFilter,
 } from "@/types/meta";
+import type {
+  MetaInstagramAccount,
+  MetaPage,
+  MetaPixel,
+  WebsiteSalesSubmit,
+  WizardCreateResult,
+} from "@/types/campaign-wizard";
 
 type InsightsParams = {
   datePreset?: string;
@@ -190,6 +197,43 @@ export async function createAd(payload: CreateAdPayload): Promise<{ id: string }
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+export async function uploadAdImage(file: File): Promise<{ imageHash: string }> {
+  const form = new FormData();
+  form.append("image", file);
+  return apiFetch<{ imageHash: string }>("/api/meta/adimages", {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function fetchPages(): Promise<MetaPage[]> {
+  const data = await apiFetch<{ pages: MetaPage[] }>("/api/meta/pages");
+  return data.pages;
+}
+
+export async function fetchInstagramAccounts(pageId: string): Promise<MetaInstagramAccount[]> {
+  const data = await apiFetch<{ accounts: MetaInstagramAccount[] }>(
+    `/api/meta/instagram-accounts${buildQuery({ pageId })}`,
+  );
+  return data.accounts;
+}
+
+export async function fetchPixels(): Promise<MetaPixel[]> {
+  const data = await apiFetch<{ pixels: MetaPixel[] }>("/api/meta/pixels");
+  return data.pixels;
+}
+
+export async function runWebsiteSalesWizard(
+  payload: WebsiteSalesSubmit,
+): Promise<WizardCreateResult> {
+  const data = await apiFetch<{ result: WizardCreateResult }>("/api/meta/wizard/website-sales", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return data.result;
 }
 
 export async function fetchAccountInsights(params?: InsightsParams): Promise<ParsedInsights> {

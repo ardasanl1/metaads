@@ -81,6 +81,23 @@ export async function metaRequest<T = unknown>(
   return parseMetaResponse<T>(response);
 }
 
+export async function metaRequestMultipart<T = unknown>(
+  path: string,
+  formData: FormData,
+  options: { token?: string; connectionId?: string; method?: "POST" } = {},
+): Promise<T> {
+  const token = options.token ?? (await getStoredAccessToken(options.connectionId));
+  const url = path.startsWith("http") ? path : `${graphBaseUrl()}/${path.replace(/^\//, "")}`;
+  const response = await fetch(url, {
+    method: options.method ?? "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+  return parseMetaResponse<T>(response);
+}
+
 export async function verifyMetaConnection(
   accessToken: string,
   adAccountId: string,
@@ -456,6 +473,103 @@ export async function createAd(
   };
 
   return metaRequest<{ id: string }>(`${accountPath}/ads`, { method: "POST", body });
+}
+
+export type UploadedAdImage = { hash: string };
+
+export async function uploadAdImage(
+  adAccountId: string,
+  file: File,
+): Promise<UploadedAdImage> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  if (!accountPath) {
+    throw new MetaApiError("Reklam hesabı ID gerekli", 400);
+  }
+
+  const form = new FormData();
+  form.append("filename", file);
+
+  const result = await metaRequestMultipart<{ images?: Record<string, { hash: string }> }>(
+    `${accountPath}/adimages`,
+    form,
+  );
+
+  const first = result.images ? Object.values(result.images)[0] : null;
+  if (!first?.hash) {
+    throw new MetaApiError("Görsel yüklenemedi (hash alınamadı)", 502);
+  }
+  return { hash: first.hash };
+}
+
+export type CreateAdCreativeInput = {
+  name: string;
+  pageId: string;
+  instagramActorId?: string;
+  websiteUrl: string;
+  imageHash: string;
+  primaryText: string;
+  headline: string;
+  description?: string;
+  ctaType: "SHOP_NOW" | "LEARN_MORE" | "SIGN_UP" | "GET_OFFER";
+};
+
+export async function createAdCreative(
+  adAccountId: string,
+  input: CreateAdCreativeInput,
+): Promise<{ id: string }> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  if (!accountPath) {
+    throw new MetaApiError("Reklam hesabı ID gerekli", 400);
+  }
+
+  const linkData: Record<string, unknown> = {
+    link: input.websiteUrl,
+    message: input.primaryText,
+    image_hash: input.imageHash,
+    name: input.headline,
+    call_to_action: {
+      type: input.ctaType,
+      value: { link: input.websiteUrl },
+    },
+  };
+  if (input.description) linkData.description = input.description;
+
+  const objectStorySpec: Record<string, unknown> = {
+    page_id: input.pageId,
+    link_data: linkData,
+  };
+  if (input.instagramActorId) {
+    objectStorySpec.instagram_actor_id = input.instagramActorId;
+  }
+
+  const body: Record<string, string> = {
+    name: input.name.trim(),
+    object_story_spec: JSON.stringify(objectStorySpec),
+  };
+
+  return metaRequest<{ id: string }>(`${accountPath}/adcreatives`, { method: "POST", body });
+}
+
+export type MetaPage = { id: string; name: string };
+export async function getFacebookPages(): Promise<MetaPage[]> {
+  const result = await metaRequest<{ data?: MetaPage[] }>("me/accounts?fields=id,name&limit=200");
+  return result.data ?? [];
+}
+
+export type MetaPixel = { id: string; name?: string };
+export async function getPixels(adAccountId: string): Promise<MetaPixel[]> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  const result = await metaRequest<{ data?: MetaPixel[] }>(`${accountPath}/pixels?fields=id,name&limit=200`);
+  return result.data ?? [];
+}
+
+export type MetaInstagramAccount = { id: string; username?: string; name?: string };
+export async function getInstagramAccountsForPage(pageId: string): Promise<MetaInstagramAccount[]> {
+  // Basit: Page üzerinden instagram_business_account çekiyoruz.
+  const result = await metaRequest<{ instagram_business_account?: MetaInstagramAccount }>(
+    `${pageId}?fields=instagram_business_account{id,username,name}`,
+  );
+  return result.instagram_business_account ? [result.instagram_business_account] : [];
 }
 
 type PagedResult<T> = {

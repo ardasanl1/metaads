@@ -1,13 +1,13 @@
 import PanelLayout from "@/components/PanelLayout";
-import { NewCampaignForm } from "@/components/campaigns/NewCampaignForm";
+import { WebsiteSalesWizard } from "@/components/campaigns/wizard/WebsiteSalesWizard";
 
 function NewCampaignBody() {
-  return <NewCampaignForm />;
+  return <WebsiteSalesWizard />;
 }
 
 export default function NewCampaignPage() {
   return (
-    <PanelLayout title="Yeni Kampanya">
+    <PanelLayout title="Yeni Reklam">
       <NewCampaignBody />
     </PanelLayout>
   );
