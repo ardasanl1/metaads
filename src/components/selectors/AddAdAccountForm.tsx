@@ -65,7 +65,19 @@ export function AddAdAccountForm({ onAdd, disabled = false }: AddAdAccountFormPr
           className="bg-background text-foreground"
         />
         <p className="text-[11px] text-muted-foreground">
-          Reklam Yöneticisi → Hesap ayarları → Hesap ID
+          Nereden:{" "}
+          <a
+            href="https://business.facebook.com/settings/ad-accounts"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline-offset-2 hover:underline"
+          >
+            Business Manager → Reklam Hesapları
+          </a>
+          {" → hesap adının altındaki "}
+          <code className="rounded bg-muted px-1 py-0.5 text-[10px]">act_...</code> ID. Sadece rakam
+          girerseniz <code className="rounded bg-muted px-1 py-0.5 text-[10px]">act_</code> öneki
+          otomatik eklenir.
         </p>
       </div>
       <div className="flex gap-2">

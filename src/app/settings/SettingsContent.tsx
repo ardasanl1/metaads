@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, type ReactNode } from "react";
 import PanelLayout from "@/components/PanelLayout";
 import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
 import { AdAccountSelector } from "@/components/selectors/AdAccountSelector";
@@ -12,6 +12,27 @@ import { Input } from "@/components/ui/input";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { disconnectConnection } from "@/services/meta/client";
 import { getFirmDisplayName } from "@/utils/ad-account";
+
+const META_TOKEN_PERMISSIONS = [
+  "ads_read",
+  "ads_management",
+  "business_management",
+  "pages_show_list",
+  "pages_manage_ads",
+] as const;
+
+function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary underline-offset-2 hover:underline"
+    >
+      {children}
+    </a>
+  );
+}
 
 function SettingsBody() {
   const {
@@ -153,8 +174,29 @@ function SettingsBody() {
                 className="bg-background text-foreground"
               />
               <p className="text-xs text-muted-foreground">
-                Token işletme hesabına ait olmalıdır. Gerekli izinler: pages_show_list,
-                pages_manage_ads, business_management, ads_management, ads_read.
+                Nereden:{" "}
+                <ExternalLink href="https://developers.facebook.com/tools/explorer/">
+                  Graph API Explorer
+                </ExternalLink>
+                {" → "}
+                <ExternalLink href="https://developers.facebook.com/docs/graph-api/overview#access-tokens">
+                  Access Token rehberi
+                </ExternalLink>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Kalıcı kullanım için:{" "}
+                <ExternalLink href="https://business.facebook.com/settings/system-users">
+                  Business Manager → System Users
+                </ExternalLink>
+                {" "}üzerinden işletme tokenı oluşturun.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Gerekli izinler:{" "}
+                {META_TOKEN_PERMISSIONS.map((permission) => (
+                  <code key={permission} className="mr-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                    {permission}
+                  </code>
+                ))}
               </p>
             </div>
 
