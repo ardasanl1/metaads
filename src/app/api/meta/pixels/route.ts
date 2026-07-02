@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       return jsonError("Reklam hesabı seçilmedi", 400);
     }
 
-    const businessId = await ensureMetaBusinessId(connection.id);
+    const businessId = await ensureMetaBusinessId(connection.id, adAccountId);
     const result = await getPixelsForAdAccount({
       adAccountId,
       connectionId: connection.id,

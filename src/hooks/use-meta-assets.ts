@@ -43,14 +43,8 @@ type UseMetaAssetsResult = {
   reloadInstagram: () => Promise<void>;
 };
 
-function cacheKey(input: UseMetaAssetsInput): string {
-  return [
-    input.connectionId ?? "",
-    input.businessId ?? "",
-    input.adAccountId ?? "",
-    input.recipeId,
-    input.pageId ?? "",
-  ].join(":");
+function assetsLoadKey(input: UseMetaAssetsInput): string {
+  return [input.connectionId ?? "", input.adAccountId ?? "", input.recipeId].join(":");
 }
 
 export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
@@ -74,7 +68,7 @@ export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
   const prevAdAccountRef = useRef<string | undefined>(undefined);
   const prevPageRef = useRef<string | undefined>(undefined);
 
-  const key = useMemo(() => cacheKey(input), [input]);
+  const loadKey = useMemo(() => assetsLoadKey(input), [input.connectionId, input.adAccountId, input.recipeId]);
 
   const applyAutoSelections = useCallback(() => {
     setSelectedAssets((current) => {
@@ -145,10 +139,11 @@ export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
           return next;
         });
       } else if (available.length === 1) {
-        setSelectedAssets((current) => ({
-          ...current,
-          pixel: { id: available[0].id, name: available[0].name },
-        }));
+        setSelectedAssets((current) =>
+          current.pixel
+            ? current
+            : { ...current, pixel: { id: available[0].id, name: available[0].name } },
+        );
       } else {
         setSelectedAssets((current) => {
           if (!current.pixel) return current;
@@ -234,7 +229,8 @@ export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
   }, [input.connectionId]);
 
   useEffect(() => {
-    if (prevBusinessRef.current && prevBusinessRef.current !== input.businessId) {
+    const previous = prevBusinessRef.current;
+    if (previous && input.businessId && previous !== input.businessId) {
       setSelectedAssets((current) => {
         const next = { ...current };
         delete next.page;
@@ -277,7 +273,7 @@ export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
     if (!input.connectionId || !input.adAccountId) return;
     void reloadPages();
     void reloadPixels();
-  }, [key, input.connectionId, input.adAccountId, reloadPages, reloadPixels]);
+  }, [loadKey, input.connectionId, input.adAccountId, reloadPages, reloadPixels]);
 
   useEffect(() => {
     void reloadInstagram();

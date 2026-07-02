@@ -19,7 +19,7 @@ import type {
   MetaPageOption,
   MetaPixelOption,
 } from "@/types/meta-assets";
-import { isMissingPageDisplayName } from "@/utils/meta-page";
+import { formatPageOptionLabel, isMissingPageDisplayName } from "@/utils/meta-page";
 
 export { normalizeAdAccountId };
 
@@ -744,12 +744,14 @@ async function batchFetchPageNames(
   for (let index = 0; index < uniqueIds.length; index += 50) {
     const chunk = uniqueIds.slice(index, index + 50);
     try {
-      const response = await metaRequest<Record<string, PageNameDetails>>(
-        `?ids=${chunk.join(",")}&fields=id,name,username,global_brand_page_name,link`,
-        { token },
-      );
+      const url = `${graphBaseUrl()}?ids=${encodeURIComponent(chunk.join(","))}&fields=${encodeURIComponent("id,name,username,global_brand_page_name,link")}`;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const batchResponse = await parseMetaResponse<Record<string, PageNameDetails>>(response);
       for (const id of chunk) {
-        const details = response[id];
+        const details = batchResponse[id];
         if (!details || details.error) continue;
         const display = extractDisplayNameFromPageDetails(id, details);
         if (!display) continue;
@@ -1149,6 +1151,9 @@ export async function getFacebookPageOptions(input?: {
   };
   const pages = Array.from(byId.values());
   await enrichPageNames(pages, token);
+  for (const page of pages) {
+    page.name = formatPageOptionLabel(page);
+  }
   pages.sort((a, b) => {
     const priorityDiff = sourcePriority[a.source] - sourcePriority[b.source];
     if (priorityDiff !== 0) return priorityDiff;
@@ -1208,11 +1213,16 @@ export async function getPixelsForAdAccount(input: {
   businessId?: string;
 }): Promise<PixelsFetchResult> {
   const token = await getStoredAccessToken(input.connectionId);
-  const businessId =
-    input.businessId?.trim() ||
-    (input.connectionId
-      ? await ensureMetaBusinessId(input.connectionId)
-      : (await getMetaConnection())?.metaBusinessId?.trim() ?? null);
+  const connection = input.connectionId
+    ? await getMetaConnectionById(input.connectionId)
+    : await getMetaConnection();
+  const { primaryBusinessId, businessIds } = await collectBusinessIdsForPageDiscovery({
+    connectionId: input.connectionId,
+    adAccountId: input.adAccountId,
+    businessId: input.businessId,
+    connection,
+    token,
+  });
 
   const byId = new Map<string, MetaPixelOption>();
   const accountPixelIds = new Set<string>();
@@ -1220,6 +1230,38 @@ export async function getPixelsForAdAccount(input: {
   let businessRequestSucceeded = false;
   let adAccountError: string | undefined;
   let businessError: string | undefined;
+
+  const addPixel = (
+    pixel: MetaPixel,
+    source: MetaPixelOption["source"],
+    options?: { forceAvailable?: boolean; ownerBusinessId?: string },
+  ) => {
+    if (!pixel?.id) return;
+    const existing = byId.get(pixel.id);
+    const onAccount = accountPixelIds.has(pixel.id) || options?.forceAvailable;
+    const onMatchedBusiness =
+      source === "business" &&
+      Boolean(options?.ownerBusinessId && options.ownerBusinessId === primaryBusinessId);
+    const available = onAccount || onMatchedBusiness || source === "ad_account";
+
+    if (!existing) {
+      byId.set(pixel.id, {
+        id: pixel.id,
+        name: pixel.name?.trim() || `Pixel ${pixel.id}`,
+        lastFiredTime: pixel.last_fired_time,
+        source,
+        available,
+      });
+      return;
+    }
+
+    if (!existing.available && available) {
+      existing.available = true;
+    }
+    if (pixel.name?.trim() && (existing.name === `Pixel ${existing.id}` || !existing.name?.trim())) {
+      existing.name = pixel.name.trim();
+    }
+  };
 
   const accountPath = normalizeAdAccountId(input.adAccountId);
   if (accountPath) {
@@ -1231,44 +1273,58 @@ export async function getPixelsForAdAccount(input: {
       );
       adAccountRequestSucceeded = true;
       for (const pixel of fromAccount) {
-        if (!pixel?.id) continue;
         accountPixelIds.add(pixel.id);
-        byId.set(pixel.id, {
-          id: pixel.id,
-          name: pixel.name?.trim() || `Pixel ${pixel.id}`,
-          lastFiredTime: pixel.last_fired_time,
-          source: "ad_account",
-          available: true,
-        });
+        addPixel(pixel, "ad_account", { forceAvailable: true });
       }
     } catch (error) {
       adAccountError = error instanceof Error ? error.message : "Reklam hesabı Pixel isteği başarısız";
+    }
+
+    try {
+      const account = await metaRequest<{
+        adspixels?: { data?: MetaPixel[] };
+      }>(`${accountPath}?fields=adspixels.limit(200){id,name,last_fired_time}`, { token });
+      for (const pixel of account.adspixels?.data ?? []) {
+        if (!pixel?.id) continue;
+        accountPixelIds.add(pixel.id);
+        addPixel(pixel, "ad_account", { forceAvailable: true });
+      }
+      adAccountRequestSucceeded = true;
+    } catch (error) {
+      if (!adAccountError) {
+        adAccountError =
+          error instanceof Error ? error.message : "Reklam hesabı adspixels alanı okunamadı";
+      }
     }
   } else {
     adAccountError = "Reklam hesabı ID geçersiz";
   }
 
-  if (businessId) {
-    try {
-      const fromBusiness = await fetchPaged<MetaPixel>(
-        `${businessId}/adspixels?fields=id,name,last_fired_time&limit=200`,
-        200,
-        token,
-      );
-      businessRequestSucceeded = true;
-      for (const pixel of fromBusiness) {
-        if (!pixel?.id || byId.has(pixel.id)) continue;
-        byId.set(pixel.id, {
-          id: pixel.id,
-          name: pixel.name?.trim() || `Pixel ${pixel.id}`,
-          lastFiredTime: pixel.last_fired_time,
-          source: "business",
-          available: false,
-        });
+  const businessPixelErrors: string[] = [];
+  for (const businessId of businessIds) {
+    const edges = [
+      `${businessId}/adspixels?fields=id,name,last_fired_time&limit=200`,
+      `${businessId}/owned_pixels?fields=id,name,last_fired_time&limit=200`,
+      `${businessId}/client_pixels?fields=id,name,last_fired_time&limit=200`,
+    ];
+
+    for (const edge of edges) {
+      try {
+        const fromBusiness = await fetchPaged<MetaPixel>(edge, 200, token);
+        businessRequestSucceeded = true;
+        for (const pixel of fromBusiness) {
+          addPixel(pixel, "business", { ownerBusinessId: businessId });
+        }
+      } catch (error) {
+        businessPixelErrors.push(
+          error instanceof Error ? error.message : `${edge} başarısız`,
+        );
       }
-    } catch (error) {
-      businessError = error instanceof Error ? error.message : "Business Pixel isteği başarısız";
     }
+  }
+
+  if (businessPixelErrors.length > 0 && !businessRequestSucceeded) {
+    businessError = businessPixelErrors[0];
   }
 
   const pixels = Array.from(byId.values());
@@ -1292,9 +1348,13 @@ export async function getPixelsForAdAccount(input: {
     }
   } else if (pixels.length > 0) {
     reason = "Pixel var fakat bu reklam hesabında kullanılamıyor";
-    detail = "Business altında Pixel bulundu ancak seçili reklam hesabına atanmamış.";
+    detail =
+      "Business altında Pixel bulundu ancak seçili reklam hesabına atanmamış. Business Manager'da Pixel'i reklam hesabıyla paylaşın.";
   } else if (adAccountRequestSucceeded || businessRequestSucceeded) {
     reason = "Reklam hesabına atanmış Pixel bulunamadı";
+    if (businessIds.length > 0) {
+      detail = `${businessIds.length} işletme tarandı; erişilebilir Pixel bulunamadı.`;
+    }
   } else if (adAccountError) {
     reason = "Reklam hesabı hatalı";
     detail = adAccountError;

@@ -152,6 +152,18 @@ export function WebsiteSalesWizard() {
     };
   }, [imagePreviewUrl]);
 
+  const selectedPage = useMemo(
+    () => pages.find((page) => page.id === selectedPageId),
+    [pages, selectedPageId],
+  );
+
+  const selectedPageLabel = useMemo(() => {
+    if (!selectedPageId) return undefined;
+    if (selectedPage) return formatPageOptionLabel(selectedPage);
+    if (selectedAssets.page?.name) return selectedAssets.page.name;
+    return undefined;
+  }, [selectedPageId, selectedPage, selectedAssets.page?.name]);
+
   const review = useMemo(() => {
     const pageName = selectedAssets.page?.name ?? pages.find((p) => p.id === draft.pageId)?.name ?? "—";
     const pixelName =
@@ -541,7 +553,7 @@ export function WebsiteSalesWizard() {
                   onValueChange={selectPage}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Page seçin" />
+                    <SelectValue placeholder="Page seçin">{selectedPageLabel}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {pages.map((p) => (
