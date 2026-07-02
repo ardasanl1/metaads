@@ -6,7 +6,7 @@ import {
   getMetaConnectionById,
   listLinkedAdAccounts,
 } from "@/lib/db";
-import { MetaApiError, verifyMetaConnection } from "@/lib/meta";
+import { MetaApiError, ensureMetaBusinessId, verifyMetaConnection } from "@/lib/meta";
 import { handleApiError, jsonError } from "@/lib/api-utils";
 import { normalizeAdAccountId } from "@/utils/ad-account";
 
@@ -79,6 +79,8 @@ export async function POST(request: NextRequest) {
       adAccountName: verified.accountName,
       select: true,
     });
+
+    await ensureMetaBusinessId(connection.id);
 
     return NextResponse.json({
       ok: true,

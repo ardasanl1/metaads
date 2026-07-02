@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import PanelLayout from "@/components/PanelLayout";
 import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
 import { AdAccountSelector } from "@/components/selectors/AdAccountSelector";
@@ -49,6 +50,8 @@ function SettingsBody() {
   } = useMetaAccount();
 
   const [accessToken, setAccessToken] = useState("");
+  const [metaBusinessId, setMetaBusinessId] = useState("");
+  const [savingBusinessId, setSavingBusinessId] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -64,7 +67,10 @@ function SettingsBody() {
       const res = await fetch("/api/meta/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken }),
+        body: JSON.stringify({
+          accessToken,
+          metaBusinessId: metaBusinessId.trim() || undefined,
+        }),
       });
       const data = (await res.json()) as { error?: string };
 
@@ -74,6 +80,7 @@ function SettingsBody() {
       }
 
       setAccessToken("");
+      setMetaBusinessId("");
       setMessage("İşletme bağlandı. Aşağıdan reklam hesabı ekleyebilirsiniz.");
       retry();
     } catch {
@@ -100,6 +107,38 @@ function SettingsBody() {
       setDisconnectingId(null);
     }
   }
+
+  async function handleSaveBusinessId() {
+    if (!activeConnectionId) return;
+    const trimmed = metaBusinessId.trim();
+    if (!trimmed) {
+      toast.error("Business Manager ID girin");
+      return;
+    }
+
+    setSavingBusinessId(true);
+    setError("");
+    try {
+      const res = await fetch("/api/meta/connections/business-id", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionId: activeConnectionId, metaBusinessId: trimmed }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setError(data.error ?? "Business ID kaydedilemedi");
+        return;
+      }
+      setMessage("Business Manager ID kaydedildi.");
+      retry();
+    } catch {
+      setError("Business ID kaydedilirken hata oluştu");
+    } finally {
+      setSavingBusinessId(false);
+    }
+  }
+
+  const activeConnection = connections.find((item) => item.id === activeConnectionId) ?? null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -200,6 +239,29 @@ function SettingsBody() {
               </p>
             </div>
 
+            <div className="space-y-1.5">
+              <label htmlFor="metaBusinessId" className="text-sm font-medium text-foreground">
+                Business Manager ID (opsiyonel)
+              </label>
+              <Input
+                id="metaBusinessId"
+                value={metaBusinessId}
+                onChange={(e) => setMetaBusinessId(e.target.value)}
+                placeholder="ör. 123456789012345"
+                autoComplete="off"
+                className="bg-background text-foreground"
+              />
+              <p className="text-xs text-muted-foreground">
+                Nereden:{" "}
+                <ExternalLink href="https://business.facebook.com/settings/info">
+                  Business Manager → İşletme bilgileri
+                </ExternalLink>
+                {" → "}
+                <strong>İşletme kimliği</strong>. Bu, reklam hesabı ID&apos;si (
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px]">act_...</code>) değildir.
+              </p>
+            </div>
+
             <Button type="submit" disabled={connecting}>
               {connecting ? "Bağlanıyor..." : "İşletme Bağla"}
             </Button>
@@ -231,6 +293,36 @@ function SettingsBody() {
               />
             </div>
             <AddAdAccountForm onAdd={addAdAccountManually} disabled={accountLoading} />
+
+            {activeConnection && !activeConnection.metaBusinessId && (
+              <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-900/50 dark:bg-yellow-950/30">
+                <p className="text-sm text-yellow-900 dark:text-yellow-200">
+                  Business Manager ID kayıtlı değil. Reklam hesabı eklediyseniz sistem otomatik
+                  çözmeyi dener; olmazsa aşağıya Business Manager ID girin.
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="flex-1 space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Business Manager ID
+                    </label>
+                    <Input
+                      value={metaBusinessId}
+                      onChange={(e) => setMetaBusinessId(e.target.value)}
+                      placeholder="123456789012345"
+                      className="bg-background text-foreground"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={savingBusinessId}
+                    onClick={() => void handleSaveBusinessId()}
+                  >
+                    {savingBusinessId ? "Kaydediliyor..." : "Business ID Kaydet"}
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

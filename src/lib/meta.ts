@@ -1,5 +1,5 @@
 import "server-only";
-import { getMetaConnection, getMetaConnectionById, updateMetaBusinessId } from "./db";
+import { getMetaConnection, getMetaConnectionById, listLinkedAdAccounts, updateMetaBusinessId } from "./db";
 import { extractMetaErrorMessage } from "./meta-errors";
 import {
   normalizeAdAccountId,
@@ -171,12 +171,49 @@ export async function resolveTokenIdentity(
   return { metaUserId, metaUserName, metaBusinessId };
 }
 
+export async function getBusinessIdFromAdAccount(
+  adAccountId: string,
+  options?: { connectionId?: string; token?: string },
+): Promise<string | null> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  if (!accountPath) return null;
+
+  try {
+    const result = await metaRequest<{ business?: { id?: string } }>(
+      `${accountPath}?fields=business{id}`,
+      options,
+    );
+    return result.business?.id?.trim() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureMetaBusinessId(connectionId?: string): Promise<string | null> {
   const connection = connectionId
     ? await getMetaConnectionById(connectionId)
     : await getMetaConnection();
   if (!connection) return null;
   if (connection.metaBusinessId?.trim()) return connection.metaBusinessId.trim();
+
+  const adAccountCandidates = new Set<string>();
+  if (connection.selectedAdAccountId?.trim()) {
+    adAccountCandidates.add(connection.selectedAdAccountId.trim());
+  }
+  const linked = await listLinkedAdAccounts(connection.id);
+  for (const account of linked) {
+    if (account.id?.trim()) adAccountCandidates.add(account.id.trim());
+  }
+
+  for (const adAccountId of adAccountCandidates) {
+    const fromAccount = await getBusinessIdFromAdAccount(adAccountId, {
+      connectionId: connection.id,
+    });
+    if (fromAccount) {
+      await updateMetaBusinessId(connection.id, fromAccount);
+      return fromAccount;
+    }
+  }
 
   try {
     const businesses = await getBusinesses({ token: connection.accessToken });
@@ -727,15 +764,20 @@ export async function getFacebookPageOptions(input?: {
     const missingPagePerms = ["pages_show_list", "pages_manage_ads"].filter((permission) =>
       diagnostics.missingPermissions.includes(permission),
     );
-    if (!businessId) {
-      diagnostics.hint =
-        "İşletme (Business) ID bulunamadı. Token'ı Ayarlar'dan yeniden bağlayın.";
-    } else if (missingPagePerms.length > 0) {
+    if (missingPagePerms.length > 0) {
       diagnostics.hint = `Facebook Page listeleme yetkisi bulunmuyor: ${missingPagePerms.join(", ")}.`;
+    } else if (!businessId && !accountPath) {
+      diagnostics.hint =
+        "İşletme (Business) ID bulunamadı. Ayarlar'dan reklam hesabı ekleyin veya Business Manager ID girin.";
+    } else if (!businessId && accountPath) {
+      diagnostics.hint =
+        "Reklam hesabından Business ID çözülemedi. Token'ın bu hesaba erişimi olduğundan emin olun veya Ayarlar'dan Business Manager ID girin.";
     } else if (diagnostics.userAccountsError && diagnostics.adAccountError) {
       diagnostics.hint = `Page API hataları — kullanıcı: ${diagnostics.userAccountsError}; reklam hesabı: ${diagnostics.adAccountError}`;
     } else if (diagnostics.adAccountError) {
       diagnostics.hint = `Reklam hesabı Page listesi alınamadı: ${diagnostics.adAccountError}`;
+    } else if (diagnostics.userAccountsError) {
+      diagnostics.hint = `Kullanıcı Page listesi alınamadı: ${diagnostics.userAccountsError}`;
     } else {
       diagnostics.hint = `Business ${businessId} altında erişilebilir Facebook Page bulunamadı.`;
     }

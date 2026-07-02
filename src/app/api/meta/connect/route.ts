@@ -14,11 +14,14 @@ export async function POST(request: NextRequest) {
       accessToken?: string;
       adAccountId?: string;
       adAccountName?: string;
+      metaBusinessId?: string;
     };
 
     const accessToken = typeof body.accessToken === "string" ? body.accessToken.trim() : "";
     const adAccountId = typeof body.adAccountId === "string" ? body.adAccountId.trim() : "";
     const adAccountName = typeof body.adAccountName === "string" ? body.adAccountName.trim() : "";
+    const manualBusinessId =
+      typeof body.metaBusinessId === "string" ? body.metaBusinessId.trim() : "";
 
     if (!accessToken) {
       return jsonError("Meta Access Token gerekli", 400);
@@ -42,7 +45,7 @@ export async function POST(request: NextRequest) {
       accessToken,
       metaUserId: verified.metaUserId,
       metaUserName: verified.metaUserName,
-      metaBusinessId: verified.metaBusinessId,
+      metaBusinessId: manualBusinessId || verified.metaBusinessId,
       adAccountId: normalizedAccountId,
       adAccountName: accountName,
     });
