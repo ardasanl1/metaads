@@ -10,7 +10,9 @@ export async function GET(request: NextRequest) {
   try {
     const connectionId = request.nextUrl.searchParams.get("connectionId")?.trim() || undefined;
     const adAccountId = request.nextUrl.searchParams.get("adAccountId")?.trim() || undefined;
-    const businessId = connectionId ? await ensureMetaBusinessId(connectionId) : await ensureMetaBusinessId();
+    const businessId = connectionId
+      ? await ensureMetaBusinessId(connectionId, adAccountId)
+      : await ensureMetaBusinessId(undefined, adAccountId);
     const { pages, diagnostics } = await getFacebookPageOptions({
       connectionId,
       adAccountId,

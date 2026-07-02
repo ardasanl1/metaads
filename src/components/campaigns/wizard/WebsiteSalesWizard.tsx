@@ -505,7 +505,7 @@ export function WebsiteSalesWizard() {
         <Card>
           <CardHeader>
             <CardTitle>3) Meta varlıkları</CardTitle>
-            <CardDescription>Page zorunlu. Instagram hesabı varsa seçilebilir. Pixel zorunlu.</CardDescription>
+            <CardDescription>Facebook Page ve Pixel otomatik bulunur. Birden fazla Page varsa listeden seçin.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
@@ -526,6 +526,11 @@ export function WebsiteSalesWizard() {
                       Tekrar Dene
                     </Button>
                   </div>
+                </div>
+              ) : pages.length === 1 ? (
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+                  {pages[0].name}
+                  <span className="ml-2 text-muted-foreground">(otomatik seçildi)</span>
                 </div>
               ) : (
                 <Select
