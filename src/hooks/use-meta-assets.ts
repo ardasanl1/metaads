@@ -8,6 +8,7 @@ import type {
   MetaPixelOption,
   SelectedMetaAssets,
 } from "@/types/meta-assets";
+import { formatPageOptionLabel } from "@/utils/meta-page";
 import {
   fetchInstagramAccounts,
   fetchMetaAssetDiagnostics,
@@ -81,7 +82,7 @@ export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
       const availablePixels = pixels.filter((pixel) => pixel.available);
 
       if (!next.page && pages.length === 1) {
-        next.page = { id: pages[0].id, name: pages[0].name };
+        next.page = { id: pages[0].id, name: formatPageOptionLabel(pages[0]) };
       }
       if (!next.pixel && availablePixels.length === 1) {
         next.pixel = { id: availablePixels[0].id, name: availablePixels[0].name };
@@ -111,7 +112,7 @@ export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
         setSelectedAssets((current) =>
           current.page
             ? current
-            : { ...current, page: { id: nextPages[0].id, name: nextPages[0].name } },
+            : { ...current, page: { id: nextPages[0].id, name: formatPageOptionLabel(nextPages[0]) } },
         );
       }
     } catch (error) {
@@ -183,10 +184,10 @@ export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
     setInstagramLoading(true);
     setInstagramHint("");
     try {
-      const pageName = pages.find((page) => page.id === input.pageId)?.name;
+      const pageName = pages.find((page) => page.id === input.pageId);
       const accounts = await fetchInstagramAccounts(input.pageId, {
         connectionId: input.connectionId,
-        pageName,
+        pageName: pageName ? formatPageOptionLabel(pageName) : undefined,
       });
       if (requestId !== instagramRequestRef.current) return;
       setInstagramAccounts(accounts);

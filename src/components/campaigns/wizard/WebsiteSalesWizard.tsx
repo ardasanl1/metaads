@@ -15,6 +15,7 @@ import type {
 } from "@/types/campaign-wizard";
 import type { MetaLocationOption } from "@/types/meta-assets";
 import { hasErrors, validateWebsiteSalesDraft } from "@/utils/campaign-wizard-validation";
+import { formatPageOptionLabel } from "@/utils/meta-page";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { useMetaAssets } from "@/hooks/use-meta-assets";
 import { runWebsiteSalesWizard, uploadAdImage } from "@/services/meta/client";
@@ -225,7 +226,9 @@ export function WebsiteSalesWizard() {
     const page = pages.find((item) => item.id === pageId);
     setSelectedAssets((current) => ({
       ...current,
-      page: page ? { id: page.id, name: page.name } : undefined,
+      page: page
+        ? { id: page.id, name: formatPageOptionLabel(page) }
+        : undefined,
       instagram: undefined,
       instantForm: undefined,
     }));
@@ -529,7 +532,7 @@ export function WebsiteSalesWizard() {
                 </div>
               ) : pages.length === 1 ? (
                 <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
-                  {pages[0].name}
+                  {formatPageOptionLabel(pages[0])}
                   <span className="ml-2 text-muted-foreground">(otomatik seçildi)</span>
                 </div>
               ) : (
@@ -543,7 +546,7 @@ export function WebsiteSalesWizard() {
                   <SelectContent>
                     {pages.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.name}
+                        {formatPageOptionLabel(p)}
                       </SelectItem>
                     ))}
                   </SelectContent>

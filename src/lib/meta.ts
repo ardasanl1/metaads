@@ -19,6 +19,7 @@ import type {
   MetaPageOption,
   MetaPixelOption,
 } from "@/types/meta-assets";
+import { isMissingPageDisplayName } from "@/utils/meta-page";
 
 export { normalizeAdAccountId };
 
@@ -694,31 +695,116 @@ async function fetchPageEdge(edgeBase: string, token: string): Promise<PageEdgeF
 }
 
 function isMissingPageName(id: string, name?: string): boolean {
-  const trimmed = name?.trim();
-  if (!trimmed) return true;
-  return trimmed === id || /^\d+$/.test(trimmed);
+  return isMissingPageDisplayName(id, name);
+}
+
+type PageNameDetails = {
+  id?: string;
+  name?: string;
+  username?: string;
+  global_brand_page_name?: string;
+  link?: string;
+  error?: { message?: string };
+};
+
+function extractDisplayNameFromPageDetails(id: string, details: PageNameDetails): string | undefined {
+  const candidates = [
+    details.name?.trim(),
+    details.global_brand_page_name?.trim(),
+    details.username?.trim(),
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    if (!isMissingPageName(id, candidate)) {
+      return candidate;
+    }
+  }
+
+  if (details.link) {
+    try {
+      const slug = new URL(details.link).pathname.replace(/^\//, "").split("/")[0];
+      if (slug && !isMissingPageName(id, slug)) {
+        return slug;
+      }
+    } catch {
+      // ignore invalid URL
+    }
+  }
+
+  return undefined;
+}
+
+async function batchFetchPageNames(
+  pageIds: string[],
+  token: string,
+): Promise<Map<string, { name: string; username?: string }>> {
+  const names = new Map<string, { name: string; username?: string }>();
+  const uniqueIds = [...new Set(pageIds.filter(Boolean))];
+
+  for (let index = 0; index < uniqueIds.length; index += 50) {
+    const chunk = uniqueIds.slice(index, index + 50);
+    try {
+      const response = await metaRequest<Record<string, PageNameDetails>>(
+        `?ids=${chunk.join(",")}&fields=id,name,username,global_brand_page_name,link`,
+        { token },
+      );
+      for (const id of chunk) {
+        const details = response[id];
+        if (!details || details.error) continue;
+        const display = extractDisplayNameFromPageDetails(id, details);
+        if (!display) continue;
+        const username = details.username?.trim();
+        names.set(id, {
+          name: display,
+          username:
+            username && !isMissingPageName(id, username) ? username.replace(/^@/, "") : undefined,
+        });
+      }
+    } catch {
+      // fall back to single-page lookups below
+    }
+  }
+
+  for (const id of uniqueIds) {
+    if (names.has(id)) continue;
+    try {
+      const details = await metaRequest<PageNameDetails>(
+        `${id}?fields=id,name,username,global_brand_page_name,link`,
+        { token },
+      );
+      const display = extractDisplayNameFromPageDetails(id, details);
+      if (!display) continue;
+      const username = details.username?.trim();
+      names.set(id, {
+        name: display,
+        username:
+          username && !isMissingPageName(id, username) ? username.replace(/^@/, "") : undefined,
+      });
+    } catch {
+      // keep unresolved
+    }
+  }
+
+  return names;
 }
 
 async function enrichPageNames(pages: MetaPageOption[], token: string): Promise<void> {
   const targets = pages.filter((page) => isMissingPageName(page.id, page.name));
   if (targets.length === 0) return;
 
-  await Promise.all(
-    targets.map(async (page) => {
-      try {
-        const details = await metaRequest<{ name?: string; username?: string }>(
-          `${page.id}?fields=name,username`,
-          { token },
-        );
-        const resolved = details.name?.trim() || details.username?.trim();
-        if (resolved && !isMissingPageName(page.id, resolved)) {
-          page.name = resolved;
-        }
-      } catch {
-        // keep existing fallback
-      }
-    }),
+  const resolved = await batchFetchPageNames(
+    targets.map((page) => page.id),
+    token,
   );
+
+  for (const page of targets) {
+    const identity = resolved.get(page.id);
+    if (!identity) continue;
+    page.name = identity.name;
+    if (identity.username) {
+      page.username = identity.username;
+    }
+  }
 }
 
 function extractPageIdFromObjectStorySpec(spec: unknown): string | undefined {
@@ -941,11 +1027,13 @@ export async function getFacebookPageOptions(input?: {
     for (const page of items) {
       if (!page?.id) continue;
       const name = page.name?.trim() || page.username?.trim();
+      const username = page.username?.trim();
       const existing = byId.get(page.id);
       if (!existing) {
         byId.set(page.id, {
           id: page.id,
           name: name && !isMissingPageName(page.id, name) ? name : page.id,
+          username: username && !isMissingPageName(page.id, username) ? username : undefined,
           pictureUrl: page.picture?.data?.url,
           source,
         });
@@ -953,6 +1041,9 @@ export async function getFacebookPageOptions(input?: {
       }
       if (isMissingPageName(existing.id, existing.name) && name && !isMissingPageName(page.id, name)) {
         existing.name = name;
+      }
+      if (!existing.username && username && !isMissingPageName(page.id, username)) {
+        existing.username = username;
       }
       if (!existing.pictureUrl && page.picture?.data?.url) {
         existing.pictureUrl = page.picture.data.url;
@@ -1029,7 +1120,7 @@ export async function getFacebookPageOptions(input?: {
     try {
       const account = await metaRequest<{
         promote_pages?: { data?: MetaPage[] };
-      }>(`${accountPath}?fields=promote_pages.limit(200){id,name}`, { token });
+      }>(`${accountPath}?fields=promote_pages.limit(200){id,name,username}`, { token });
       const nested = account.promote_pages?.data ?? [];
       addPages(nested, "ad_account");
       diagnostics.adAccountCount += nested.length;

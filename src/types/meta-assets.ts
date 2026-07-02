@@ -24,6 +24,7 @@ export type MetaLocationOption = {
 export type MetaPageOption = {
   id: string;
   name: string;
+  username?: string;
   pictureUrl?: string;
   source:
     | "user"
