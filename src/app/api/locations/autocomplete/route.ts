@@ -17,7 +17,34 @@ export async function GET(request: NextRequest) {
 
   const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
   if (!apiKey) {
-    return jsonError("Google Places yapılandırması eksik (GOOGLE_MAPS_API_KEY)", 500);
+    // Ücretsiz fallback: OpenStreetMap Nominatim (rate limit/policy geçerli)
+    const url = new URL("https://nominatim.openstreetmap.org/search");
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", "10");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("accept-language", "tr");
+    if (countryCode) url.searchParams.set("countrycodes", countryCode.toLowerCase());
+
+    const resp = await fetch(url.toString(), {
+      headers: {
+        // Nominatim policy: identify your app
+        "User-Agent": "meta-ads-panel/0.1 (location autocomplete)",
+      },
+    });
+    const raw = (await resp.json()) as unknown;
+    if (!resp.ok) return jsonError("Konum araması başarısız", 502);
+
+    const list = Array.isArray(raw) ? raw : [];
+    const suggestions: GoogleAutocompleteSuggestion[] = list
+      .map((x) => x as { place_id?: unknown; display_name?: unknown })
+      .map((x) => ({
+        placeId: `nominatim:${String(x.place_id ?? "").trim()}`,
+        displayName: String(x.display_name ?? "").trim(),
+      }))
+      .filter((s) => s.placeId !== "nominatim:" && s.displayName);
+
+    return NextResponse.json({ suggestions });
   }
 
   const body: Record<string, unknown> = {

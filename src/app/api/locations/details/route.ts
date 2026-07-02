@@ -15,7 +15,51 @@ export async function GET(request: NextRequest) {
 
   const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
   if (!apiKey) {
-    return jsonError("Google Places yapılandırması eksik (GOOGLE_MAPS_API_KEY)", 500);
+    // Ücretsiz fallback: Nominatim details
+    if (!placeId.startsWith("nominatim:")) {
+      return jsonError("Konum detayları alınamadı (provider yok)", 400);
+    }
+    const nominatimPlaceId = placeId.replace(/^nominatim:/, "").trim();
+    if (!nominatimPlaceId) return jsonError("placeId geçersiz", 400);
+
+    const url = new URL("https://nominatim.openstreetmap.org/details");
+    url.searchParams.set("place_id", nominatimPlaceId);
+    url.searchParams.set("format", "json");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("accept-language", "tr");
+
+    const resp = await fetch(url.toString(), {
+      headers: { "User-Agent": "meta-ads-panel/0.1 (location details)" },
+    });
+    const raw = (await resp.json()) as unknown;
+    if (!resp.ok) return jsonError("Konum detayları alınamadı", 502);
+
+    const obj = raw as {
+      place_id?: unknown;
+      localname?: unknown;
+      display_name?: unknown;
+      address?: Record<string, string>;
+      centroid?: { coordinates?: [number, number] };
+    };
+
+    const address = obj.address ?? {};
+    const countryCode = (address.country_code ?? "").toUpperCase();
+    const selection: GoogleLocationSelection = {
+      placeId,
+      displayName: String(obj.display_name ?? obj.localname ?? "").trim() || placeId,
+      countryCode,
+      countryName: address.country ?? undefined,
+      regionName: address.state ?? address.region ?? undefined,
+      cityName: address.city ?? address.town ?? address.village ?? undefined,
+      latitude: obj.centroid?.coordinates?.[1],
+      longitude: obj.centroid?.coordinates?.[0],
+    };
+
+    if (!selection.countryCode) {
+      return jsonError("Seçilen konumdan ülke bilgisi alınamadı", 400);
+    }
+
+    return NextResponse.json({ selection });
   }
 
   const url = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`);
