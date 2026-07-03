@@ -22,17 +22,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: result.success,
       pages: result.pages,
-      diagnostic: {
-        tokenType: result.diagnostic.tokenType,
-        userAccountsRequestSucceeded: result.diagnostic.userAccountsRequestSucceeded,
-        userAccountsCount: result.diagnostic.userAccountsCount,
-        businessOwnedRequestSucceeded: result.diagnostic.businessOwnedRequestSucceeded,
-        businessOwnedCount: result.diagnostic.businessOwnedCount,
-        businessClientRequestSucceeded: result.diagnostic.businessClientRequestSucceeded,
-        businessClientCount: result.diagnostic.businessClientCount,
-        missingPermissions: result.diagnostic.missingPermissions,
-        reason: result.diagnostic.reason,
-      },
+      diagnostic: result.diagnostic,
     });
   } catch (error) {
     return handleApiError(error);

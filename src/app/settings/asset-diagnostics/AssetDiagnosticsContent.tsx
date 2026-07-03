@@ -14,14 +14,35 @@ type DiagnosticsPanel = {
     missingPermissions: string[];
     requestErrors: string[];
   };
-  pages: {
-    userAccountsSucceeded: boolean;
+  adAccount: { normalizedId: string; accessible: boolean };
+  pageDiscovery: {
+    promotePagesRequestSucceeded: boolean;
+    promotePagesCount: number;
+    userAccountsRequestSucceeded: boolean;
     userAccountsCount: number;
-    businessFallbackRan: boolean;
-    availableForAdsCount: number;
-    reason?: string;
-    pages: Array<{ id: string; name: string; tasks: string[]; source: string; available?: boolean }>;
+    businessOwnedRequestSucceeded: boolean;
+    businessOwnedCount: number;
+    businessClientRequestSucceeded: boolean;
+    businessClientCount: number;
+    mergedPageCount: number;
   };
+  pages: Array<{
+    id: string;
+    name: string;
+    sources: string[];
+    tasks?: string[];
+    usableForAds: boolean;
+    excludeReason?: string;
+  }>;
+  usablePages: Array<{
+    id: string;
+    name: string;
+    sources: string[];
+    tasks?: string[];
+    usableForAds: boolean;
+  }>;
+  errors: Array<{ source: string; code?: number; type?: string; message: string }>;
+  reason?: string;
   pixels: {
     normalizedAdAccountId: string;
     adAccountAccessible: boolean;
@@ -75,7 +96,7 @@ export default function AssetDiagnosticsContent() {
         <CardHeader>
           <CardTitle>Meta Asset Diagnostics</CardTitle>
           <CardDescription>
-            Page ve Pixel kesfi icin token yetenekleri ve API sonuclari (token gosterilmez).
+            Page kesfi: promote_pages oncelikli, kaynak bazli sonuclar (token gosterilmez).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -95,23 +116,41 @@ export default function AssetDiagnosticsContent() {
               <div><b>Type:</b> {data.token.tokenType ?? "unknown"}</div>
               <div><b>Granted:</b> {data.token.grantedPermissions.join(", ") || "-"}</div>
               <div><b>Missing:</b> {data.token.missingPermissions.join(", ") || "-"}</div>
-              {data.token.requestErrors.length > 0 && (
-                <div className="text-destructive"><b>Errors:</b> {data.token.requestErrors.join("; ")}</div>
-              )}
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Pages</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Ad Account</CardTitle></CardHeader>
             <CardContent className="space-y-1 text-sm">
-              <div><b>/me/accounts basarili:</b> {data.pages.userAccountsSucceeded ? "evet" : "hayir"}</div>
-              <div><b>Page sayisi:</b> {data.pages.userAccountsCount}</div>
-              <div><b>Business fallback:</b> {data.pages.businessFallbackRan ? "evet" : "hayir"}</div>
-              <div><b>Reklam icin kullanilabilir:</b> {data.pages.availableForAdsCount}</div>
-              {data.pages.reason && <div className="text-destructive"><b>Neden:</b> {data.pages.reason}</div>}
-              {data.pages.pages.map((p) => (
+              <div><b>Normalize ID:</b> {data.adAccount.normalizedId || "-"}</div>
+              <div><b>Erisim:</b> {data.adAccount.accessible ? "evet" : "hayir"}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Page Discovery</CardTitle></CardHeader>
+            <CardContent className="space-y-1 text-sm">
+              <div><b>promote_pages basarili:</b> {data.pageDiscovery.promotePagesRequestSucceeded ? "evet" : "hayir"} · <b>sayi:</b> {data.pageDiscovery.promotePagesCount}</div>
+              <div><b>/me/accounts basarili:</b> {data.pageDiscovery.userAccountsRequestSucceeded ? "evet" : "hayir"} · <b>sayi:</b> {data.pageDiscovery.userAccountsCount}</div>
+              <div><b>business owned:</b> {data.pageDiscovery.businessOwnedRequestSucceeded ? "evet" : "hayir"} · <b>sayi:</b> {data.pageDiscovery.businessOwnedCount}</div>
+              <div><b>business client:</b> {data.pageDiscovery.businessClientRequestSucceeded ? "evet" : "hayir"} · <b>sayi:</b> {data.pageDiscovery.businessClientCount}</div>
+              <div><b>Birlesme sonrasi:</b> {data.pageDiscovery.mergedPageCount} · <b>Kullanilabilir:</b> {data.usablePages.length}</div>
+              {data.reason && <div className="text-muted-foreground"><b>Sonuc:</b> {data.reason}</div>}
+              {data.errors.map((e, i) => (
+                <div key={i} className="text-destructive text-xs">{e.source}: {e.message}</div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Pages (tum adaylar)</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              {data.pages.map((p) => (
                 <div key={p.id} className="rounded border p-2">
-                  {p.name} · {p.id} · tasks: [{p.tasks.join(", ")}] · {p.source}
+                  <div>{p.name} · {p.id}</div>
+                  <div>sources: [{p.sources.join(", ")}] · usable: {p.usableForAds ? "evet" : "hayir"}</div>
+                  {p.tasks && p.tasks.length > 0 && <div>tasks: [{p.tasks.join(", ")}]</div>}
+                  {p.excludeReason && <div className="text-destructive">elendi: {p.excludeReason}</div>}
                 </div>
               ))}
             </CardContent>
@@ -121,11 +160,8 @@ export default function AssetDiagnosticsContent() {
             <CardHeader><CardTitle>Pixels</CardTitle></CardHeader>
             <CardContent className="space-y-1 text-sm">
               <div><b>Normalize Ad Account:</b> {data.pixels.normalizedAdAccountId}</div>
-              <div><b>Ad Account erisimi:</b> {data.pixels.adAccountAccessible ? "evet" : "hayir"}</div>
-              <div><b>/adspixels basarili:</b> {data.pixels.pixelRequestSucceeded ? "evet" : "hayir"}</div>
-              <div><b>Pixel sayisi:</b> {data.pixels.resultCount}</div>
-              {data.pixels.metaErrorCode && <div><b>Meta error code:</b> {data.pixels.metaErrorCode}</div>}
-              {data.pixels.reason && <div className="text-destructive"><b>Neden:</b> {data.pixels.reason}</div>}
+              <div><b>/adspixels basarili:</b> {data.pixels.pixelRequestSucceeded ? "evet" : "hayir"} · <b>sayi:</b> {data.pixels.resultCount}</div>
+              {data.pixels.reason && <div className="text-destructive">{data.pixels.reason}</div>}
             </CardContent>
           </Card>
         </>

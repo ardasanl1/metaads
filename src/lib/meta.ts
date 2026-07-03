@@ -1144,6 +1144,13 @@ export async function getFacebookPageOptions(input?: {
     missingPermissions: [],
   };
 
+  const legacySourceToPageSources = (legacy?: MetaPageOption["source"]): import("@/types/meta-assets").MetaPageSource[] => {
+    if (legacy === "ad_account") return ["ad_account_promote_pages"];
+    if (legacy === "business_owned") return ["business_owned"];
+    if (legacy === "business_client") return ["business_client"];
+    return ["user_accounts"];
+  };
+
   const addPages = (items: MetaPage[], source: MetaPageOption["source"]) => {
     registerPageRows(pageNameRegistry, items);
     for (const page of items) {
@@ -1158,6 +1165,9 @@ export async function getFacebookPageOptions(input?: {
           username: username && !isMissingPageName(page.id, username) ? username.replace(/^@/, "") : undefined,
           pictureUrl: page.picture?.data?.url,
           source,
+          sources: legacySourceToPageSources(source),
+          usableForAds: true,
+          available: true,
         });
         continue;
       }
@@ -1268,7 +1278,7 @@ export async function getFacebookPageOptions(input?: {
     }
   }
 
-  const sourcePriority: Record<MetaPageOption["source"], number> = {
+  const sourcePriority: Record<NonNullable<MetaPageOption["source"]>, number> = {
     ad_account: 0,
     assigned_user: 1,
     business_owned: 2,
@@ -1286,7 +1296,8 @@ export async function getFacebookPageOptions(input?: {
     }
   }
   pages.sort((a, b) => {
-    const priorityDiff = sourcePriority[a.source] - sourcePriority[b.source];
+    const priorityDiff =
+      sourcePriority[a.source ?? "user_accounts"] - sourcePriority[b.source ?? "user_accounts"];
     if (priorityDiff !== 0) return priorityDiff;
     return a.name.localeCompare(b.name, "tr");
   });

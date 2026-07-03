@@ -36,22 +36,18 @@ export async function GET(request: NextRequest) {
         missingPermissions: tokenDiagnostics.missingPermissions,
         requestErrors: tokenDiagnostics.requestErrors,
       },
-      pages: {
-        userAccountsSucceeded: pages.diagnostic.userAccountsRequestSucceeded,
-        userAccountsCount: pages.diagnostic.userAccountsCount,
-        businessFallbackRan:
-          pages.diagnostic.businessOwnedRequestSucceeded !== undefined ||
-          pages.diagnostic.businessClientRequestSucceeded !== undefined,
-        availableForAdsCount: pages.diagnostic.availableForAdsCount,
-        reason: pages.diagnostic.reason,
-        pages: pages.pages.map((p) => ({
-          id: p.id,
-          name: p.name,
-          tasks: p.tasks ?? [],
-          source: p.source,
-          available: p.available,
-        })),
-      },
+      adAccount: pages.diagnostic.adAccount,
+      pageDiscovery: pages.diagnostic.pageDiscovery,
+      pages: pages.diagnostic.pages,
+      errors: pages.diagnostic.errors,
+      reason: pages.diagnostic.reason,
+      usablePages: pages.pages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        sources: p.sources,
+        tasks: p.tasks,
+        usableForAds: p.usableForAds,
+      })),
       pixels: {
         normalizedAdAccountId: pixels.diagnostic.normalizedAdAccountId,
         adAccountAccessible: pixels.diagnostic.adAccountAccessible,

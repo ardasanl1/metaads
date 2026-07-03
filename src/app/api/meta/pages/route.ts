@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
         availableCount: result.pages.length,
         totalCount: result.pages.length,
         reason: result.diagnostic.reason,
-        detail: result.diagnostic.userAccountsError,
+        detail: result.diagnostic.errors[0]?.message,
       },
     });
   } catch (error) {

@@ -21,6 +21,12 @@ export type MetaLocationOption = {
   displayName: string;
 };
 
+export type MetaPageSource =
+  | "ad_account_promote_pages"
+  | "user_accounts"
+  | "business_owned"
+  | "business_client";
+
 export type MetaPageOption = {
   id: string;
   name: string;
@@ -28,8 +34,10 @@ export type MetaPageOption = {
   pictureUrl?: string;
   tasks?: string[];
   instagramBusinessAccountId?: string;
-  available?: boolean;
-  source:
+  sources: MetaPageSource[];
+  usableForAds: boolean;
+  /** @deprecated use sources */
+  source?:
     | "user_accounts"
     | "user"
     | "business_owned"
@@ -38,6 +46,8 @@ export type MetaPageOption = {
     | "assigned_user"
     | "pending_client"
     | "existing_creative";
+  /** @deprecated use usableForAds */
+  available?: boolean;
 };
 
 export type MetaInstagramOption = {
