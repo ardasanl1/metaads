@@ -65,8 +65,8 @@ export function AppSidebar({ mobileOpen, onMobileClose }: AppSidebarProps) {
             <Sparkles className="h-4 w-4" />
           </div>
           <div>
-            <p className="text-sm font-bold text-sidebar-foreground">iyzads</p>
-            <p className="text-xs text-sidebar-muted">Meta Panel</p>
+            <p className="text-sm font-bold leading-tight text-sidebar-foreground">Meta Reklam Paneli</p>
+            <p className="text-xs text-sidebar-muted">Yönetim</p>
           </div>
         </div>
         {onMobileClose && (

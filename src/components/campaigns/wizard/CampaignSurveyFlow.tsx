@@ -15,7 +15,6 @@ import type { WizardCreateStep, WizardGender, WizardSpecialAdCategory } from "@/
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { useAccountSnapshot } from "@/hooks/use-account-snapshot";
 import { useAdAccountProfile } from "@/hooks/use-ad-account-profile";
-import { AccountProfilePanel } from "./AccountProfilePanel";
 import {
   buildSurveyFlow,
   BUSINESS_GOAL_OPTIONS,
@@ -28,8 +27,8 @@ import {
   validateResolvedCampaignPlan,
 } from "@/services/campaign-planner";
 import { runRecipeWizard, uploadAdImage } from "@/services/meta/client";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -43,10 +42,11 @@ import { MetaLocationAutocomplete } from "@/components/locations/MetaLocationAut
 import type { MetaLocationOption } from "@/types/meta-assets";
 import { AssetPicker, ChoiceCard, ImagePreview } from "./survey-ui";
 import { SectionCard } from "@/components/shared/SectionCard";
-import { WizardStepper } from "@/components/campaign-wizard/WizardStepper";
-import { WizardTipsPanel } from "@/components/campaign-wizard/WizardTipsPanel";
-import { StickyActionBar } from "@/components/layout/StickyActionBar";
-import { Info } from "lucide-react";
+import { WizardProgress, questionToProgressStep } from "@/components/campaign-wizard/WizardProgress";
+import { CompactTipsPanel } from "@/components/campaign-wizard/CompactTipsPanel";
+import { WizardFooter } from "@/components/campaign-wizard/WizardFooter";
+import { MetaAssetsSection } from "@/components/campaign-wizard/MetaAssetsSection";
+import { isFacebookHostname } from "@/utils/url-normalize";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
@@ -121,7 +121,7 @@ export function CampaignSurveyFlow() {
   useEffect(() => {
     if (!accountProfile.discovery) return;
     snap.setSelectedAssets((current) => accountProfile.applyToSelectedAssets(current));
-    if (accountProfile.defaultWebsiteUrl) {
+    if (accountProfile.defaultWebsiteUrl && !isFacebookHostname(accountProfile.defaultWebsiteUrl)) {
       setAnswers((a) => {
         if (a.creative.destinationUrl?.trim()) return a;
         return { ...a, creative: { ...a.creative, destinationUrl: accountProfile.defaultWebsiteUrl } };
@@ -192,56 +192,61 @@ export function CampaignSurveyFlow() {
     }
   }
 
+  const progressStep = questionToProgressStep(q?.id);
+
   return (
-    <div className="space-y-6 pb-24">
-      <WizardStepper currentStep={idx + 1} totalSteps={flow.length} />
+    <div className="mx-auto max-w-[1280px] pb-20">
+      <WizardProgress activeStep={progressStep} />
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="min-w-0 space-y-4">
-          <SectionCard
-            title="Reklam Anketi"
-            description={`${recipe?.outcomeLabel ?? "İş dilinizde birkaç soru"} · Soru ${idx + 1} / ${flow.length}`}
-          >
-            <div className="mb-4 flex gap-3 rounded-xl border border-primary/20 bg-accent/50 p-4 text-sm text-accent-foreground">
-              <Info className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>Her adımda yanıtlarınız kampanya planını otomatik oluşturur. İstediğiniz zaman geri dönebilirsiniz.</p>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)] lg:gap-8">
+        <div className="min-w-0 rounded-xl border border-border/60 bg-card p-5 shadow-sm sm:p-6">
+          <div className="mb-6 flex items-start justify-between gap-3 border-b border-border/50 pb-4">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                {q?.title ?? "Reklam Anketi"}
+              </h2>
+              {q?.description && (
+                <p className="mt-1 text-sm text-muted-foreground">{q.description}</p>
+              )}
             </div>
+            <Badge variant="secondary" className="shrink-0 font-normal">
+              Soru {idx + 1}/{flow.length}
+            </Badge>
+          </div>
 
+          <div className="space-y-4">
       {q?.id === "business_goal" && (
-        <Card>
-          <CardHeader><CardTitle>{q.title}</CardTitle></CardHeader>
-          <CardContent className="grid gap-2">
+        <div className="grid gap-2">
             {BUSINESS_GOAL_OPTIONS.map((o) => (
-              <Button key={o.id} variant="outline" className="h-auto justify-start py-3 text-left"
+              <Button key={o.id} variant="outline" className="h-auto justify-start border-border/60 py-3 text-left font-normal shadow-none hover:bg-muted/50"
                 onClick={() => { patch({ businessGoal: o.id, conversionDestination: "", desiredResult: "", followUpAnswers: {} }); setIdx(1); }}>
                 {o.label}
               </Button>
             ))}
-          </CardContent>
-        </Card>
+        </div>
       )}
 
       {q?.id === "lead_collection_method" && (
-        <ChoiceCard title={q.title} options={q.options ?? []} onSelect={(id) => {
+        <ChoiceCard options={q.options ?? []} onSelect={(id) => {
           patch({ followUpAnswers: { ...answers.followUpAnswers, lead_collection_method: id }, conversionDestination: id as ConversionDestinationId });
           setIdx((i) => i + 1);
         }} />
       )}
 
       {q?.id === "conversion_destination" && (
-        <ChoiceCard title={q.title} options={q.options ?? []} onSelect={(id) => {
+        <ChoiceCard options={q.options ?? []} onSelect={(id) => {
           patch({ conversionDestination: id as ConversionDestinationId }); setIdx((i) => i + 1);
         }} />
       )}
 
       {q?.id === "desired_result" && (
-        <ChoiceCard title={q.title} options={q.options ?? []} onSelect={(id) => {
+        <ChoiceCard options={q.options ?? []} onSelect={(id) => {
           patch({ desiredResult: id as DesiredResultId }); setIdx((i) => i + 1);
         }} />
       )}
 
       {q?.id === "video_priority" && (
-        <ChoiceCard title={q.title} options={q.options ?? []} onSelect={(id) => {
+        <ChoiceCard options={q.options ?? []} onSelect={(id) => {
           patch({
             followUpAnswers: { ...answers.followUpAnswers, video_priority: id },
             desiredResult: id === "reach" ? "reach" : "video_view",
@@ -251,21 +256,17 @@ export function CampaignSurveyFlow() {
       )}
 
       {q?.id === "budget" && (
-        <Card>
-          <CardHeader><CardTitle>{q.title}</CardTitle></CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2"><Label>Gunluk butce (TL)</Label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2 space-y-1.5"><Label>Günlük bütçe (TL)</Label>
               <Input type="number" value={answers.dailyBudget} onChange={(e) => patch({ dailyBudget: Number(e.target.value) })} /></div>
-            <div><Label>Baslangic</Label><Input type="date" value={answers.startDate} onChange={(e) => patch({ startDate: e.target.value })} /></div>
-            <div><Label>Bitis</Label><Input type="date" value={answers.endDate ?? ""} onChange={(e) => patch({ endDate: e.target.value })} /></div>
-          </CardContent>
-        </Card>
+            <div className="space-y-1.5"><Label>Başlangıç</Label><Input type="date" value={answers.startDate} onChange={(e) => patch({ startDate: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Bitiş</Label><Input type="date" value={answers.endDate ?? ""} onChange={(e) => patch({ endDate: e.target.value })} /></div>
+          </div>
       )}
 
       {q?.id === "audience" && (
-        <Card>
-          <CardHeader><CardTitle>{q.title}</CardTitle></CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
             <MetaLocationAutocomplete label="Konum" placeholder="Konum ara" value={metaLoc}
               onSelect={(loc) => {
                 setMetaLoc(loc);
@@ -275,26 +276,24 @@ export function CampaignSurveyFlow() {
                 snap.setSelectedAssets((c) => ({ ...c, location: { key: loc.key, type: loc.type, displayName: loc.displayName, countryCode: loc.countryCode } }));
               }}
               connectionId={activeConnectionId ?? undefined} minChars={2} />
-            <div><Label>Min yas</Label><Input type="number" value={answers.audience.ageMin}
+            </div>
+            <div className="space-y-1.5"><Label>Min yaş</Label><Input type="number" value={answers.audience.ageMin}
               onChange={(e) => patch({ audience: { ...answers.audience, ageMin: Number(e.target.value) } })} /></div>
-            <div><Label>Max yas</Label><Input type="number" value={answers.audience.ageMax}
+            <div className="space-y-1.5"><Label>Max yaş</Label><Input type="number" value={answers.audience.ageMax}
               onChange={(e) => patch({ audience: { ...answers.audience, ageMax: Number(e.target.value) } })} /></div>
-            <div><Label>Cinsiyet</Label>
+            <div className="space-y-1.5"><Label>Cinsiyet</Label>
               <Select value={answers.audience.genders[0] ?? "ALL"} onValueChange={(v) => patch({ audience: { ...answers.audience, genders: [v as WizardGender] } })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ALL">Tumu</SelectItem><SelectItem value="MALE">Erkek</SelectItem><SelectItem value="FEMALE">Kadin</SelectItem>
+                  <SelectItem value="ALL">Tümü</SelectItem><SelectItem value="MALE">Erkek</SelectItem><SelectItem value="FEMALE">Kadın</SelectItem>
                 </SelectContent>
               </Select></div>
-          </CardContent>
-        </Card>
+          </div>
       )}
 
       {q?.id === "assets" && recipe && (
-        <Card>
-          <CardHeader><CardTitle>{q.title}</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <AccountProfilePanel
+          <div className="space-y-4">
+            <MetaAssetsSection
               discovery={accountProfile.discovery}
               loading={accountProfile.loading}
               needsManualForm={accountProfile.needsManualForm}
@@ -303,8 +302,10 @@ export function CampaignSurveyFlow() {
               websiteOptions={accountProfile.websiteOptions}
               required={accountProfile.required}
               selectedPageId={answers.selectedAssets.page?.id}
+              selectedPageName={answers.selectedAssets.page?.name}
               selectedPixelId={answers.selectedAssets.pixel?.id}
-              selectedWebsiteUrl={answers.creative.destinationUrl}
+              selectedPixelName={answers.selectedAssets.pixel?.name}
+              websiteUrl={answers.creative.destinationUrl ?? ""}
               onSelectPage={(id, name) => {
                 snap.setSelectedAssets((c) => ({ ...c, page: { id, name } }));
                 void snap.reloadPageBound(id, name);
@@ -312,17 +313,18 @@ export function CampaignSurveyFlow() {
               onSelectPixel={(id, name) => {
                 snap.setSelectedAssets((c) => ({ ...c, pixel: { id, name } }));
               }}
-              onSelectWebsite={(url) => {
+              onWebsiteChange={(url) => {
                 patch({ creative: { ...answers.creative, destinationUrl: url } });
               }}
               onSaveManual={async (manual) => {
                 await accountProfile.saveManual(manual);
+                if (manual.websiteUrl && !isFacebookHostname(manual.websiteUrl)) {
+                  patch({ creative: { ...answers.creative, destinationUrl: manual.websiteUrl } });
+                }
                 toast.success("Hesap profili kaydedildi");
               }}
+              onRescan={() => void accountProfile.reload()}
             />
-            <Button size="sm" variant="outline" onClick={() => void accountProfile.reload()} disabled={accountProfile.loading}>
-              Profili yenile
-            </Button>
             {recipe.requiredAssets.includes("instantForm") && (
               <AssetPicker label="Meta Form" value={answers.selectedAssets.instantForm?.id ?? ""}
                 options={(snap.snapshot?.instantForms ?? []).map((f) => ({ id: f.id, label: f.name }))}
@@ -339,41 +341,39 @@ export function CampaignSurveyFlow() {
                   snap.setSelectedAssets((c) => ({ ...c, whatsapp: w ? { id: w.id, name: w.name } : undefined }));
                 }} />
             )}
-          </CardContent>
-        </Card>
+          </div>
       )}
 
       {q?.id === "creative" && (
-        <Card>
-          <CardHeader><CardTitle>{q.title}</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
+          <div className="space-y-4">
             {recipe?.requiredUserFields.includes("websiteUrl") && (
-              <div><Label>Website URL</Label><Input value={answers.creative.destinationUrl ?? ""}
+              <div className="space-y-1.5"><Label>Website URL</Label><Input type="url" placeholder="https://ornek.com/urun" value={answers.creative.destinationUrl ?? ""}
                 onChange={(e) => patch({ creative: { ...answers.creative, destinationUrl: e.target.value } })} /></div>
             )}
-            <div><Label>Gorsel</Label><Input type="file" accept="image/*" disabled={uploading}
-              onChange={(e) => void onImage(e.target.files?.[0] ?? null)} /><ImagePreview url={preview} /></div>
-            <div><Label>Reklam metni</Label><Input value={answers.creative.primaryText}
+            <div className="space-y-1.5">
+              <Label>Görsel</Label>
+              <Input type="file" accept="image/*" disabled={uploading}
+              onChange={(e) => void onImage(e.target.files?.[0] ?? null)} />
+              <ImagePreview url={preview} />
+            </div>
+            <div className="space-y-1.5"><Label>Reklam metni</Label><Input value={answers.creative.primaryText}
               onChange={(e) => patch({ creative: { ...answers.creative, primaryText: e.target.value } })} /></div>
-            <div><Label>Baslik</Label><Input value={answers.creative.headline}
+            <div className="space-y-1.5"><Label>Başlık</Label><Input value={answers.creative.headline}
               onChange={(e) => patch({ creative: { ...answers.creative, headline: e.target.value } })} /></div>
-          </CardContent>
-        </Card>
+          </div>
       )}
 
       {q?.id === "special_category" && (
-        <Card>
-          <CardHeader><CardTitle>{q.title}</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
+          <div className="space-y-4">
             <div className="flex gap-2">
-              <Button variant={catYes === false ? "default" : "outline"} onClick={() => { setCatYes(false); patch({ specialAdCategoryConfirmed: true, specialAdCategories: ["NONE"] }); }}>Hayir</Button>
+              <Button variant={catYes === false ? "default" : "outline"} onClick={() => { setCatYes(false); patch({ specialAdCategoryConfirmed: true, specialAdCategories: ["NONE"] }); }}>Hayır</Button>
               <Button variant={catYes === true ? "default" : "outline"} onClick={() => { setCatYes(true); patch({ specialAdCategoryConfirmed: true }); }}>Evet</Button>
             </div>
             {catYes && (
               <Select value={answers.specialAdCategories[0]} onValueChange={(v) => patch({ specialAdCategories: [v as WizardSpecialAdCategory] })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="EMPLOYMENT">Istihdam</SelectItem>
+                  <SelectItem value="EMPLOYMENT">İstihdam</SelectItem>
                   <SelectItem value="HOUSING">Konut</SelectItem>
                   <SelectItem value="CREDIT">Kredi</SelectItem>
                   <SelectItem value="FINANCIAL_PRODUCTS_SERVICES">Finansal</SelectItem>
@@ -381,65 +381,62 @@ export function CampaignSurveyFlow() {
                 </SelectContent>
               </Select>
             )}
-          </CardContent>
-        </Card>
+          </div>
       )}
 
       {q?.id === "review" && plan && (
-        <Card>
-          <CardHeader><CardTitle>Reklam plani ozeti</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            {!plan.recipeEnabled && <p className="text-sm text-yellow-800">Bu tur henuz aktif degil.</p>}
+          <div className="space-y-4">
+            {!plan.recipeEnabled && <p className="text-sm text-amber-700 dark:text-amber-300">Bu tür henüz aktif değil.</p>}
             {validation.errors.map((e) => <p key={e} className="text-sm text-destructive">{e}</p>)}
-            <div className="rounded-lg border bg-muted/30 p-4 text-sm grid gap-2 sm:grid-cols-2">
-              <div><b>Sonuc:</b> {recipe?.outcomeLabel}</div>
-              <div><b>Yer:</b> {answers.conversionDestination ? getDestinationLabel(answers.conversionDestination) : "-"}</div>
-              <div><b>Butce:</b> {answers.dailyBudget} TL</div>
-              <div><b>Konum:</b> {answers.audience.locations[0]?.displayName ?? "-"}</div>
-              <div><b>CTA:</b> {plan.creative.callToAction}</div>
-              <div><b>Durum:</b> Duraklatildi</div>
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-4 text-sm grid gap-2 sm:grid-cols-2">
+              <div><span className="text-muted-foreground">Sonuç:</span> {recipe?.outcomeLabel}</div>
+              <div><span className="text-muted-foreground">Yer:</span> {answers.conversionDestination ? getDestinationLabel(answers.conversionDestination) : "—"}</div>
+              <div><span className="text-muted-foreground">Bütçe:</span> {answers.dailyBudget} TL</div>
+              <div><span className="text-muted-foreground">Konum:</span> {answers.audience.locations[0]?.displayName ?? "—"}</div>
+              <div><span className="text-muted-foreground">CTA:</span> {plan.creative.callToAction}</div>
+              <div><span className="text-muted-foreground">Durum:</span> Duraklatıldı</div>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => setShowTech((v) => !v)}>
-              {showTech ? "Teknik gizle" : "Teknik ayarlar"}
+            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => setShowTech((v) => !v)}>
+              {showTech ? "Teknik detayı gizle" : "Teknik detay"}
             </Button>
             {showTech && (
-              <div className="text-xs text-muted-foreground border rounded p-3">
-                <div>Objective: {plan.campaign.objective}</div>
-                <div>Optimization: {plan.adSet.optimizationGoal}</div>
-                <div>Billing: {plan.adSet.billingEvent}</div>
-                <div>Promoted: {JSON.stringify(plan.adSet.promotedObject ?? {})}</div>
-              </div>
+              <details open className="text-xs text-muted-foreground rounded-lg border border-border/60 p-3">
+                <summary className="cursor-pointer font-medium text-foreground">Teknik ayarlar</summary>
+                <div className="mt-2 space-y-1">
+                  <div>Objective: {plan.campaign.objective}</div>
+                  <div>Optimization: {plan.adSet.optimizationGoal}</div>
+                  <div>Billing: {plan.adSet.billingEvent}</div>
+                </div>
+              </details>
             )}
-            {createStep && <p className="text-sm">{CREATE_LABELS[createStep]}</p>}
-          </CardContent>
-        </Card>
+            {createStep && <p className="text-sm text-muted-foreground">{CREATE_LABELS[createStep]}</p>}
+          </div>
       )}
-          </SectionCard>
+          </div>
         </div>
 
         <div className="order-last lg:order-none">
-          <WizardTipsPanel recipeLabel={recipe?.outcomeLabel} />
+          <CompactTipsPanel />
         </div>
       </div>
 
-      <StickyActionBar className="[&>div]:max-w-none">
+      <WizardFooter>
         <Button variant="outline" disabled={idx === 0} onClick={() => setIdx((i) => i - 1)}>
           Geri
         </Button>
         {q?.id !== "review" ? (
-          <Button className="flex-1" onClick={() => setIdx((i) => Math.min(flow.length - 1, i + 1))}>
-            İleri
+          <Button onClick={() => setIdx((i) => Math.min(flow.length - 1, i + 1))}>
+            Devam Et
           </Button>
         ) : (
           <Button
-            className="flex-1"
             disabled={submitting || !validation.valid || !plan?.recipeEnabled}
             onClick={() => void onCreate()}
           >
             {submitting ? "Oluşturuluyor..." : "Onayla ve Oluştur"}
           </Button>
         )}
-      </StickyActionBar>
+      </WizardFooter>
     </div>
   );
 }

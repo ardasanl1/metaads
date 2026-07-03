@@ -22,7 +22,7 @@
   --border: 220 13% 91%;
   --input: 220 13% 91%;
   --ring: 234 89% 58%;
-  --radius: 0.75rem;
+  --radius: 0.625rem;
   --sidebar: 222 47% 11%;
   --sidebar-foreground: 210 40% 96%;
   --sidebar-muted: 215 20% 65%;
@@ -101,7 +101,7 @@ body {
 }
 
 .panel-card {
-  @apply rounded-xl border border-border bg-card shadow-[var(--shadow-card)];
+  @apply rounded-[10px] border border-border/70 bg-card shadow-[var(--shadow-soft)];
 }
 
 .panel-section {

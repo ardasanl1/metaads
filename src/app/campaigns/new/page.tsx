@@ -12,7 +12,7 @@ export default function NewCampaignPage() {
   return (
     <PanelLayout
       title="Yeni Reklam"
-      subtitle="Birkaç soruyla kampanyanızı oluşturun"
+      subtitle="Web sitenizden satış almak için reklamınızı oluşturun"
       wide
       actions={
         <Button variant="outline" size="sm" asChild>

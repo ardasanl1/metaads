@@ -47,3 +47,17 @@ export function domainsMatch(a: string, b: string): boolean {
 export function isValidHttpUrl(raw: string): boolean {
   return normalizeWebsiteUrl(raw) !== null;
 }
+
+export function isFacebookHostname(value?: string): boolean {
+  if (!value?.trim()) return false;
+  const raw = value.trim().toLowerCase();
+  if (/^\d+$/.test(raw)) return false;
+  try {
+    const host = raw.includes("://")
+      ? new URL(raw).hostname.toLowerCase()
+      : raw.replace(/^www\./, "").split("/")[0];
+    return host === "facebook.com" || host.endsWith(".facebook.com") || host === "fb.com" || host.endsWith(".fb.com");
+  } catch {
+    return raw.includes("facebook.com") || raw.includes("fb.com");
+  }
+}

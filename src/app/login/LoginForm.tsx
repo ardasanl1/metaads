@@ -51,7 +51,7 @@ export default function LoginForm() {
             <Sparkles className="h-6 w-6" />
           </div>
           <div className="space-y-1">
-            <h1 className="text-2xl font-bold tracking-tight">iyzads</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Meta Reklam Paneli</h1>
             <p className="text-sm text-muted-foreground">Meta Reklam Paneli&apos;ne giriş yapın</p>
           </div>
         </CardHeader>
