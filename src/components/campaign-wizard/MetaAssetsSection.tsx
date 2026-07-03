@@ -32,7 +32,7 @@ function assetStatus(
 ): MetaAssetStatus {
   if (loading) return "loading";
   if (!hasValue) return "missing";
-  if (source === "manual") return "manual";
+  if (source === "manual" || source === "manual_verified") return "manual";
   return "found";
 }
 
@@ -45,12 +45,13 @@ type MetaAssetsSectionProps = {
   pageOptions: AccountProfileDiscoveryResult["candidates"]["pages"];
   pixelOptions: AccountProfileDiscoveryResult["candidates"]["pixels"];
   websiteOptions: AccountProfileDiscoveryResult["candidates"]["websites"];
-  required: { page: boolean; pixel: boolean; website: boolean };
+  required: { page: boolean; pixel: boolean; website: boolean; instagram?: boolean };
   selectedPageId?: string;
   selectedPageName?: string;
   selectedPixelId?: string;
   selectedPixelName?: string;
   websiteUrl: string;
+  instagramMessage?: string;
   onSelectPage: (id: string, name: string) => void;
   onSelectPixel: (id: string, name: string) => void;
   onWebsiteChange: (url: string) => void;
@@ -77,6 +78,7 @@ export function MetaAssetsSection({
   selectedPixelId,
   selectedPixelName,
   websiteUrl,
+  instagramMessage,
   onSelectPage,
   onSelectPixel,
   onWebsiteChange,
@@ -90,10 +92,11 @@ export function MetaAssetsSection({
 
   const profile = discovery?.profile;
 
+  const resolvedPageId = selectedPageId || profile?.page?.id;
   const pageName =
     selectedPageName ||
     profile?.page?.name ||
-    pageOptions.find((p) => p.id === selectedPageId)?.name;
+    pageOptions.find((p) => p.id === resolvedPageId)?.name;
 
   const pixelName =
     selectedPixelName ||
@@ -111,10 +114,12 @@ export function MetaAssetsSection({
     [websiteOptions],
   );
 
+  const pageFound = Boolean(resolvedPageId && pageName);
+  const pixelFound = Boolean(selectedPixelId || profile?.pixel?.id);
   const showManualWarning =
     needsManualForm &&
-    ((required.page && !profile?.page?.id && pageOptions.length === 0) ||
-      (required.pixel && !profile?.pixel?.id && pixelOptions.length === 0));
+    ((required.page && !pageFound && pageOptions.length === 0) ||
+      (required.pixel && !pixelFound && pixelOptions.length === 0));
 
   async function handleSaveManual(input: {
     pageIdOrUrl?: string;
@@ -129,18 +134,10 @@ export function MetaAssetsSection({
     }
   }
 
-  const isLegacy = authMethod === "manual" || !authMethod;
   const isOAuth = authMethod === "oauth";
 
   return (
     <div className="space-y-4">
-      {isLegacy && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-muted-foreground">
-          Manuel token gerekli granular varlik erisimlerini icermeyebilir. Tam otomatik varlik
-          senkronizasyonu icin Ayarlar&apos;dan &quot;Meta ile Baglan&quot; yontemini kullanin.
-        </div>
-      )}
-
       {profileError && isOAuth && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {profileError}{" "}
@@ -162,12 +159,10 @@ export function MetaAssetsSection({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {isLegacy && (
-              <DropdownMenuItem onClick={onRescan} disabled={loading}>
-                <ScanSearch className="mr-2 h-4 w-4" />
-                Yeniden tara
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem onClick={onRescan} disabled={loading}>
+              <ScanSearch className="mr-2 h-4 w-4" />
+              Yeniden tara
+            </DropdownMenuItem>
             {isOAuth ? (
               <DropdownMenuItem asChild>
                 <Link href="/settings/meta-setup">Hesap kurulumunu duzenle</Link>
@@ -188,8 +183,9 @@ export function MetaAssetsSection({
         <MetaAssetRow
           icon={LayoutGrid}
           label="Facebook Sayfası"
-          value={pageName}
-          status={assetStatus(loading, Boolean(selectedPageId || profile?.page?.id), profile?.page?.source)}
+          value={pageFound ? pageName : undefined}
+          emptyValueText={loading ? "Doğrulanıyor..." : undefined}
+          status={assetStatus(loading, pageFound, profile?.page?.source)}
           onChange={
             pageOptions.length > 1
               ? () => setPagePickerOpen((v) => !v)
@@ -201,7 +197,7 @@ export function MetaAssetsSection({
       {pagePickerOpen && pageOptions.length > 1 && (
         <AssetPicker
           label="Facebook Sayfası"
-          value={selectedPageId ?? ""}
+          value={resolvedPageId ?? ""}
           options={pageOptions.map((p) => ({ id: p.id, label: p.name }))}
           onChange={(id) => {
             const page = pageOptions.find((p) => p.id === id);
@@ -215,20 +211,37 @@ export function MetaAssetsSection({
         icon={Share2}
         label="Instagram"
         value={instagramLabel}
-        status={instagramLabel ? assetStatus(loading, true, profile?.instagram?.source) : "optional"}
+        emptyValueText={
+          instagramLabel
+            ? undefined
+            : instagramMessage ?? "Bağlı profesyonel Instagram hesabı bulunamadı"
+        }
+        status={
+          instagramLabel
+            ? assetStatus(loading, true, profile?.instagram?.source)
+            : required.instagram
+              ? "missing"
+              : "optional"
+        }
       />
 
       {required.pixel && (
         <MetaAssetRow
           icon={Target}
           label="Pixel / Dataset"
-          value={pixelName}
-          status={assetStatus(loading, Boolean(selectedPixelId || profile?.pixel?.id), profile?.pixel?.source)}
-          onChange={
-            pixelOptions.length > 1
-              ? () => setPixelPickerOpen((v) => !v)
-              : undefined
+          value={pixelFound ? pixelName : undefined}
+          emptyValueText={pixelFound ? undefined : "Bu hesapta Pixel bulunamadı"}
+          status={
+            pixelFound
+              ? assetStatus(loading, true, profile?.pixel?.source)
+              : "optional"
           }
+          onChange={
+            pixelOptions.length > 0
+              ? () => setPixelPickerOpen((v) => !v)
+              : () => setSetupOpen(true)
+          }
+          changeLabel={pixelOptions.length > 0 ? "Değiştir" : "Seçenekleri Gör"}
         />
       )}
 
@@ -281,10 +294,12 @@ export function MetaAssetsSection({
         </div>
       )}
 
-      {showManualWarning && isLegacy && (
+      {showManualWarning && (
         <div className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3">
           <p className="text-sm text-muted-foreground">
-            Meta hesabınızdan Facebook Sayfası ve Pixel otomatik bulunamadı.
+            {required.pixel && !pixelFound
+              ? "Facebook Sayfası bulundu ancak Pixel bulunamadı. Satın alma optimizasyonu için Pixel gerekir."
+              : "Meta hesabınızdan Facebook Sayfası otomatik bulunamadı."}
           </p>
           <Button
             type="button"

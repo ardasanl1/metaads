@@ -335,7 +335,11 @@ export function CampaignSurveyFlow() {
               selectedPixelName={answers.selectedAssets.pixel?.name}
               websiteUrl={answers.creative.destinationUrl ?? ""}
               onSelectPage={(id, name) => {
-                snap.setSelectedAssets((c) => ({ ...c, page: { id, name } }));
+                snap.setSelectedAssets((c) => ({
+                  ...c,
+                  page: { id, name },
+                  instagram: undefined,
+                }));
                 void snap.reloadPageBound(id, name);
               }}
               onSelectPixel={(id, name) => {

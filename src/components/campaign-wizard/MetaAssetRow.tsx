@@ -41,6 +41,7 @@ type MetaAssetRowProps = {
   icon: LucideIcon;
   label: string;
   value?: string;
+  emptyValueText?: string;
   status: MetaAssetStatus;
   onChange?: () => void;
   changeLabel?: string;
@@ -51,6 +52,7 @@ export function MetaAssetRow({
   icon: Icon,
   label,
   value,
+  emptyValueText = "—",
   status,
   onChange,
   changeLabel = "Değiştir",
@@ -68,7 +70,7 @@ export function MetaAssetRow({
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-muted-foreground">{label}</p>
           <p className="mt-0.5 truncate text-sm font-medium text-foreground">
-            {value || "—"}
+            {value || emptyValueText}
           </p>
         </div>
       </div>

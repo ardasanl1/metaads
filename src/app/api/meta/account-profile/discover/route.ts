@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
 import { handleApiError, jsonError } from "@/lib/api-utils";
 import { discoverAdAccountProfile } from "@/lib/ad-account-profile-resolver";
-import { getRecipeRequiredAssets } from "@/config/campaign-recipes";
+import { getCampaignRecipe } from "@/config/campaign-recipes";
 import type { CampaignRecipeId } from "@/config/campaign-recipes";
 
 export async function POST(request: NextRequest) {
@@ -24,9 +24,8 @@ export async function POST(request: NextRequest) {
     if (!connectionId) return jsonError("connectionId gerekli", 400);
     if (!adAccountId) return jsonError("adAccountId gerekli", 400);
 
-    const required = body.recipeId
-      ? getRecipeRequiredAssets(body.recipeId as CampaignRecipeId)
-      : ["page", "pixel"];
+    const recipe = body.recipeId ? getCampaignRecipe(body.recipeId as CampaignRecipeId) : null;
+    const required = recipe?.requiredAssets ?? ["page"];
 
     const result = await discoverAdAccountProfile({
       connectionId,
@@ -35,7 +34,7 @@ export async function POST(request: NextRequest) {
       forceRefresh: body.forceRefresh,
       needsPage: required.some((a) => ["page", "instagram", "instantForm", "whatsapp"].includes(a)),
       needsPixel: required.includes("pixel"),
-      needsWebsite: true,
+      needsWebsite: Boolean(recipe?.requiredUserFields.includes("websiteUrl")),
       needsInstagram: required.includes("instagram"),
     });
 

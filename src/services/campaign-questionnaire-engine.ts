@@ -324,7 +324,13 @@ export function canProceedFromQuestion(
       if (!recipe) return false;
       const assets = answers.selectedAssets;
       if (recipe.requiredAssets.includes("page") && !assets.page?.id) return false;
-      if (recipe.requiredAssets.includes("pixel") && !assets.pixel?.id) return false;
+      if (
+        recipe.requiredAssets.includes("pixel") &&
+        !assets.pixel?.id &&
+        recipeId !== "SALES_WEBSITE"
+      ) {
+        return false;
+      }
       if (
         (recipe.requiredUserFields.includes("websiteUrl") || recipeId === "SALES_WEBSITE") &&
         !answers.creative.destinationUrl?.trim()

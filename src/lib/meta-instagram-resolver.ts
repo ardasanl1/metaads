@@ -1,121 +1,115 @@
 import "server-only";
 
-import { graphBaseUrl, metaRequest } from "@/lib/meta";
+import { metaRequest } from "@/lib/meta";
 import {
   classifyMetaError,
+  getTokenCapabilityDiagnostics,
   requireMetaConnectionContext,
 } from "@/lib/meta-connection-context";
-import { normalizeAdAccountId } from "@/utils/ad-account";
 import type { MetaInstagramOption } from "@/types/meta-assets";
 
-const FETCH_LIMIT = 200;
-
-type PagedResult<T> = { data?: T[]; paging?: { next?: string } };
+export type InstagramResolverDiagnostic = {
+  instagramBasicGranted: boolean;
+  resultCount: number;
+  reason?: string;
+  errors: Array<{ source: string; code?: number; message: string }>;
+};
 
 type RawInstagram = {
   id: string;
   username?: string;
-  profile_pic?: string;
+  name?: string;
+  profile_picture_url?: string;
 };
-
-export type InstagramResolverDiagnostic = {
-  fromPages: number;
-  fromAdAccount: number;
-  mergedCount: number;
-  adAccountRequestSucceeded: boolean;
-  errors: Array<{ source: string; code?: number; message: string }>;
-};
-
-async function fetchPaged<T>(
-  initialPath: string,
-  token: string,
-  connectionId: string,
-): Promise<{ items: T[]; error?: { source: string; code?: number; message: string }; succeeded: boolean }> {
-  const baseUrl = graphBaseUrl();
-  let nextPath: string | null = initialPath;
-  const results: T[] = [];
-
-  while (nextPath && results.length < FETCH_LIMIT) {
-    try {
-      const response: PagedResult<T> = await metaRequest<PagedResult<T>>(nextPath, {
-        token,
-        connectionId,
-      });
-      if (response.data) results.push(...response.data);
-      if (response.paging?.next && results.length < FETCH_LIMIT) {
-        nextPath = response.paging.next.replace(`${baseUrl}/`, "");
-      } else {
-        nextPath = null;
-      }
-    } catch (error) {
-      const classified = classifyMetaError(error);
-      return {
-        items: results,
-        succeeded: false,
-        error: {
-          source: initialPath.split("?")[0],
-          code: classified.code,
-          message: classified.message,
-        },
-      };
-    }
-  }
-
-  return { items: results, succeeded: true };
-}
 
 export async function resolveInstagramAccounts(input: {
   connectionId: string;
-  adAccountId: string;
+  adAccountId?: string;
   pages?: Array<{ id: string; name?: string; instagramBusinessAccountId?: string }>;
+  selectedPageId?: string;
 }): Promise<{ accounts: MetaInstagramOption[]; diagnostic: InstagramResolverDiagnostic }> {
   const ctx = await requireMetaConnectionContext({
     connectionId: input.connectionId,
     adAccountId: input.adAccountId,
   });
-  const accountPath = normalizeAdAccountId(input.adAccountId);
-  const byId = new Map<string, MetaInstagramOption>();
+  const tokenDiagnostics = await getTokenCapabilityDiagnostics(ctx);
+  const instagramBasicGranted = tokenDiagnostics.grantedPermissions.includes("instagram_basic");
   const errors: InstagramResolverDiagnostic["errors"] = [];
-  let fromPages = 0;
-  let fromAdAccount = 0;
 
-  for (const page of input.pages ?? []) {
-    if (!page.instagramBusinessAccountId) continue;
-    fromPages += 1;
-    byId.set(page.instagramBusinessAccountId, {
-      id: page.instagramBusinessAccountId,
-      username: undefined,
-      name: page.instagramBusinessAccountId,
-      pageId: page.id,
-      pageName: page.name,
-    });
+  const sourcePages = (input.pages ?? []).filter((page) =>
+    input.selectedPageId ? page.id === input.selectedPageId : true,
+  );
+
+  const pagesWithIg = sourcePages.filter((page) => page.instagramBusinessAccountId);
+  const pagesWithoutIg = sourcePages.filter((page) => !page.instagramBusinessAccountId);
+
+  if (!instagramBasicGranted) {
+    return {
+      accounts: [],
+      diagnostic: {
+        instagramBasicGranted: false,
+        resultCount: 0,
+        reason: "Token'da instagram_basic izni bulunmuyor.",
+        errors,
+      },
+    };
   }
 
-  let adAccountRequestSucceeded = false;
-  if (accountPath) {
-    const igFetch = await fetchPaged<RawInstagram>(
-      `${accountPath}/instagram_accounts?fields=id,username,profile_pic&limit=100`,
-      ctx.accessToken,
-      ctx.connectionId,
-    );
-    if (igFetch.error) {
-      errors.push(igFetch.error);
-    } else {
-      adAccountRequestSucceeded = true;
-      fromAdAccount = igFetch.items.length;
-      for (const ig of igFetch.items) {
-        if (!ig.id) continue;
-        const existing = byId.get(ig.id);
-        byId.set(ig.id, {
-          id: ig.id,
-          username: ig.username,
-          name: ig.username ?? ig.id,
-          profilePictureUrl: ig.profile_pic,
-          pageId: existing?.pageId,
-          pageName: existing?.pageName,
-        });
-      }
+  if (pagesWithIg.length === 0) {
+    const pageName = pagesWithoutIg[0]?.name ?? sourcePages[0]?.name;
+    return {
+      accounts: [],
+      diagnostic: {
+        instagramBasicGranted: true,
+        resultCount: 0,
+        reason: pageName
+          ? `${pageName} Page'ine bagli profesyonel Instagram hesabi bulunamadi.`
+          : "Bagli profesyonel Instagram hesabi bulunamadi.",
+        errors,
+      },
+    };
+  }
+
+  const byId = new Map<string, MetaInstagramOption>();
+  let apiFailed = false;
+
+  for (const page of pagesWithIg) {
+    const igId = page.instagramBusinessAccountId;
+    if (!igId) continue;
+    try {
+      const ig = await metaRequest<RawInstagram>(
+        `${igId}?fields=id,username,name,profile_picture_url`,
+        { token: ctx.accessToken, connectionId: ctx.connectionId },
+      );
+      byId.set(ig.id, {
+        id: ig.id,
+        username: ig.username,
+        name: ig.name ?? ig.username,
+        profilePictureUrl: ig.profile_picture_url,
+        pageId: page.id,
+        pageName: page.name ?? page.id,
+      });
+    } catch (error) {
+      apiFailed = true;
+      const classified = classifyMetaError(error);
+      errors.push({
+        source: `instagram:${igId}`,
+        code: classified.code,
+        message: classified.message,
+      });
     }
+  }
+
+  if (byId.size === 0 && apiFailed) {
+    return {
+      accounts: [],
+      diagnostic: {
+        instagramBasicGranted: true,
+        resultCount: 0,
+        reason: "Instagram bilgisi alinirken Meta API hatasi olustu.",
+        errors,
+      },
+    };
   }
 
   return {
@@ -123,10 +117,8 @@ export async function resolveInstagramAccounts(input: {
       (a.username ?? a.id).localeCompare(b.username ?? b.id, "tr"),
     ),
     diagnostic: {
-      fromPages,
-      fromAdAccount,
-      mergedCount: byId.size,
-      adAccountRequestSucceeded,
+      instagramBasicGranted: true,
+      resultCount: byId.size,
       errors,
     },
   };

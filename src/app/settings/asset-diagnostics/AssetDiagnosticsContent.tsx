@@ -7,45 +7,29 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 type DiagnosticsPanel = {
   connectionId: string;
-  token: {
-    subjectName?: string;
-    subjectId?: string;
-    tokenType?: string;
-    grantedPermissions: string[];
-    missingPermissions: string[];
-    requestErrors: string[];
-  };
-  adAccount: { normalizedId: string; accessible: boolean };
-  meAccounts: { requestSucceeded: boolean; resultCount: number; empty: boolean; errorMessage?: string };
-  pageDiscovery: {
-    businessesCount: number;
-    userAccountsRequestSucceeded: boolean;
-    userAccountsCount: number;
-    businessOwnedRequestSucceeded: boolean;
-    businessOwnedCount: number;
-    businessClientRequestSucceeded: boolean;
-    businessClientCount: number;
-    mergedPageCount: number;
-  };
-  pages: Array<{ id: string; name: string; sources: string[]; tasks?: string[] }>;
-  usablePages: Array<{ id: string; name: string; sources: string[] }>;
-  errors: Array<{ source: string; code?: number; message: string }>;
-  status?: string[];
-  reason?: string;
-  pixels: {
-    normalizedAdAccountId: string;
-    adAccountAccessible: boolean;
-    adspixels: { requestSucceeded: boolean; resultCount: number; empty: boolean; errorMessage?: string };
-    customConversions: { requestSucceeded: boolean; pixelCount: number };
-    historicalAdSets: { requestSucceeded: boolean; pixelCount: number };
+  tokenSubject: { id: string; name: string };
+  grantedPermissions: string[];
+  pagesRequest: {
+    succeeded: boolean;
     resultCount: number;
-    directlyVerifiedCount: number;
-    status?: string[];
-    reason?: string;
-    metaErrorCode?: number;
+    responseDataParsed: boolean;
+    errorMessage?: string;
   };
-  instagram: { fromPages: number; fromAdAccount: number; mergedCount: number };
-  instagramAccounts: Array<{ id: string; username?: string; pageId?: string }>;
+  pages: Array<{
+    id: string;
+    name: string;
+    tasks: string[];
+    usableForAds: boolean;
+    hasInstagramBusinessAccount: boolean;
+  }>;
+  instagram: {
+    instagramBasicGranted: boolean;
+    resultCount: number;
+    reason?: string;
+  };
+  instagramAccounts: Array<{ id: string; username?: string; pageId?: string; pageName?: string }>;
+  reason?: string;
+  errors: Array<{ source: string; code?: number; message: string }>;
 };
 
 export default function AssetDiagnosticsContent() {
@@ -65,6 +49,7 @@ export default function AssetDiagnosticsContent() {
       const params = new URLSearchParams({
         connectionId: activeConnectionId,
         adAccountId: selectedAdAccountId,
+        forceRefresh: "1",
       });
       if (activeConnection?.metaBusinessId) {
         params.set("businessId", activeConnection.metaBusinessId);
@@ -91,7 +76,7 @@ export default function AssetDiagnosticsContent() {
         <CardHeader>
           <CardTitle>Meta Asset Diagnostics</CardTitle>
           <CardDescription>
-            Manuel token ile Page, Pixel ve Instagram kesfi (token gosterilmez).
+            Page ve Instagram kesfi (token gosterilmez).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -108,59 +93,64 @@ export default function AssetDiagnosticsContent() {
             <CardHeader><CardTitle>Baglanti</CardTitle></CardHeader>
             <CardContent className="space-y-1 text-sm">
               <div><b>connectionId:</b> {data.connectionId}</div>
-              <div><b>Subject:</b> {data.token.subjectName ?? "-"} ({data.token.subjectId ?? "-"})</div>
-              <div><b>Token turu:</b> {data.token.tokenType ?? "unknown"}</div>
-              <div><b>Granted:</b> {data.token.grantedPermissions.join(", ") || "-"}</div>
+              <div><b>tokenSubject:</b> {data.tokenSubject.name || "-"} ({data.tokenSubject.id || "-"})</div>
+              <div><b>grantedPermissions:</b> {data.grantedPermissions.join(", ") || "-"}</div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Page Discovery</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Page Discovery (/me/accounts)</CardTitle></CardHeader>
             <CardContent className="space-y-1 text-sm">
-              <div><b>/me/accounts basarili:</b> {data.meAccounts.requestSucceeded ? "evet" : "hayir"} · <b>sayi:</b> {data.meAccounts.resultCount}</div>
-              <div><b>Business sayisi:</b> {data.pageDiscovery.businessesCount}</div>
-              <div><b>owned_pages:</b> {data.pageDiscovery.businessOwnedCount} · <b>client_pages:</b> {data.pageDiscovery.businessClientCount}</div>
-              <div><b>Birlesme:</b> {data.pageDiscovery.mergedPageCount} · <b>Kullanilabilir:</b> {data.usablePages.length}</div>
-              {data.reason && <div><b>Sonuc:</b> {data.reason}</div>}
-              {data.errors.map((e, i) => (
-                <div key={i} className="text-destructive text-xs">{e.source}{e.code ? ` [${e.code}]` : ""}: {e.message}</div>
-              ))}
+              <div><b>succeeded:</b> {data.pagesRequest.succeeded ? "evet" : "hayir"}</div>
+              <div><b>resultCount:</b> {data.pagesRequest.resultCount}</div>
+              <div><b>responseDataParsed:</b> {data.pagesRequest.responseDataParsed ? "evet" : "hayir"}</div>
+              {data.pagesRequest.errorMessage && <div><b>hata:</b> {data.pagesRequest.errorMessage}</div>}
+              <div><b>reason:</b> {data.reason ?? "-"}</div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader><CardTitle>Pages</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              {data.pages.map((p) => (
-                <div key={p.id} className="rounded border p-2">
-                  <div>{p.name} · {p.id}</div>
-                  <div>sources: [{p.sources.join(", ")}]</div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader><CardTitle>Pixels</CardTitle></CardHeader>
-            <CardContent className="space-y-1 text-sm">
-              <div><b>Ad Account:</b> {data.pixels.normalizedAdAccountId}</div>
-              <div><b>/adspixels basarili:</b> {data.pixels.adspixels.requestSucceeded ? "evet" : "hayir"} · <b>sayi:</b> {data.pixels.adspixels.resultCount} · <b>bos:</b> {data.pixels.adspixels.empty ? "evet" : "hayir"}</div>
-              <div><b>custom conversion pixel:</b> {data.pixels.customConversions.pixelCount}</div>
-              <div><b>historical adset pixel:</b> {data.pixels.historicalAdSets.pixelCount}</div>
-              <div><b>Dogrudan dogrulanan:</b> {data.pixels.directlyVerifiedCount}</div>
-              {data.pixels.reason && <div className="text-muted-foreground">{data.pixels.reason}</div>}
+              {data.pages.length === 0 ? (
+                <p>Page bulunamadi</p>
+              ) : (
+                data.pages.map((page) => (
+                  <div key={page.id} className="rounded border border-border/60 p-2">
+                    <div><b>{page.name}</b> ({page.id})</div>
+                    <div>tasks: {page.tasks.join(", ") || "-"}</div>
+                    <div>usableForAds: {page.usableForAds ? "true" : "false"}</div>
+                    <div>hasInstagramBusinessAccount: {page.hasInstagramBusinessAccount ? "true" : "false"}</div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader><CardTitle>Instagram</CardTitle></CardHeader>
             <CardContent className="space-y-1 text-sm">
-              <div><b>Page kaynagi:</b> {data.instagram.fromPages} · <b>Ad account:</b> {data.instagram.fromAdAccount} · <b>Toplam:</b> {data.instagram.mergedCount}</div>
+              <div><b>instagram_basic:</b> {data.instagram.instagramBasicGranted ? "granted" : "missing"}</div>
+              <div><b>resultCount:</b> {data.instagram.resultCount}</div>
+              {data.instagram.reason && <div><b>reason:</b> {data.instagram.reason}</div>}
               {data.instagramAccounts.map((ig) => (
-                <div key={ig.id}>{ig.username ? `@${ig.username}` : ig.id} · page: {ig.pageId ?? "-"}</div>
+                <div key={ig.id} className="rounded border border-border/60 p-2">
+                  @{ig.username ?? ig.id} · page: {ig.pageName ?? ig.pageId}
+                </div>
               ))}
             </CardContent>
           </Card>
+
+          {data.errors.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>Hatalar</CardTitle></CardHeader>
+              <CardContent className="space-y-1 text-sm text-destructive">
+                {data.errors.map((err, i) => (
+                  <div key={`${err.source}-${i}`}>{err.source}: {err.message}</div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>

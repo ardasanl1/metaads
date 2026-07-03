@@ -35,12 +35,16 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
   );
 
   const required = useMemo(() => {
-    if (!input.recipeId) return { page: true, pixel: false, website: false };
+    if (!input.recipeId) return { page: true, pixel: false, website: false, instagram: false };
     const assets = getRecipeRequiredAssets(input.recipeId);
     return {
       page: assets.some((a) => ["page", "instagram", "instantForm", "whatsapp"].includes(a)),
       pixel: assets.includes("pixel"),
-      website: assets.includes("page") || input.recipeId === "SALES_WEBSITE" || input.recipeId === "TRAFFIC_WEBSITE",
+      instagram: assets.includes("instagram"),
+      website:
+        assets.includes("page") ||
+        input.recipeId === "SALES_WEBSITE" ||
+        input.recipeId === "TRAFFIC_WEBSITE",
     };
   }, [input.recipeId]);
 
@@ -135,6 +139,7 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
           connectionId: input.connectionId,
           businessId: input.businessId,
           adAccountId: input.adAccountId,
+          recipeId: input.recipeId ?? undefined,
           forceRefresh: forceRefresh || !profileComplete,
         });
         if (requestId !== requestRef.current) return;

@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   getAdAccountProfile,
+  PROFILE_TTL_MS,
   profileNeedsFullDiscovery,
   upsertAdAccountProfile,
 } from "@/lib/ad-account-profile-db";
@@ -130,9 +131,9 @@ export async function discoverAdAccountProfile(input: {
   needsInstagram?: boolean;
 }): Promise<AccountProfileDiscoveryResult> {
   const needsPage = input.needsPage ?? true;
-  const needsPixel = input.needsPixel ?? true;
-  const needsWebsite = input.needsWebsite ?? true;
-  const needsInstagram = input.needsInstagram ?? true;
+  const needsPixel = input.needsPixel ?? false;
+  const needsWebsite = input.needsWebsite ?? false;
+  const needsInstagram = input.needsInstagram ?? false;
 
   const ctx = await requireMetaConnectionContext(input);
   const existing = await getAdAccountProfile(ctx.connectionId, input.adAccountId);
@@ -178,6 +179,7 @@ export async function discoverAdAccountProfile(input: {
       businessId: input.businessId ?? ctx.metaBusinessId,
       adAccountId: input.adAccountId,
       profilePageId: existing?.defaultPageId,
+      forceRefresh: input.forceRefresh,
     });
     directPageCount = directPages.pages.length;
     for (const page of directPages.pages) {
@@ -223,7 +225,7 @@ export async function discoverAdAccountProfile(input: {
     }
   }
 
-  if (needsInstagram) {
+  if (needsPage || needsInstagram) {
     const instagramResult = await resolveInstagramAccounts({
       connectionId: ctx.connectionId,
       adAccountId: input.adAccountId,
@@ -239,7 +241,7 @@ export async function discoverAdAccountProfile(input: {
         username: ig.username,
         name: ig.name ?? ig.username,
         pageId: ig.pageId,
-        sources: ["ad_account_instagram"],
+        sources: ["page_instagram_business_account"],
         confidence: 100,
         usageCount: 1,
       });
@@ -355,40 +357,74 @@ export async function discoverAdAccountProfile(input: {
 
   const validatedWebsites = sortWebsiteCandidates(Array.from(websiteMap.values()));
 
-  const selectedPage = pickSingleCandidate(validatedPages);
-  const selectedPixel = pickSingleCandidate(
-    validatedPixels.filter((p) => p.sources.includes("direct_adspixels") || p.confidence >= AUTO_SELECT_MIN_CONFIDENCE),
-  );
-  const selectedWebsite = pickSingleCandidate(validatedWebsites);
-  const selectedIg = pickSingleCandidate(
-    Array.from(igMap.values()).sort((a, b) => b.confidence - a.confidence || b.usageCount - a.usageCount),
-  );
+  let selectedPage = pickSingleCandidate(validatedPages);
+  if (!selectedPage && existing?.defaultPageId && existing.lastVerifiedAt) {
+    const age = Date.now() - new Date(existing.lastVerifiedAt).getTime();
+    if (age < PROFILE_TTL_MS.page) {
+      selectedPage = {
+        id: existing.defaultPageId,
+        name: existing.defaultPageName ?? existing.defaultPageId,
+        sources: [existing.pageSource ?? "direct_user_accounts"],
+        confidence: (existing.pageConfidence ?? 100) as ProfileAssetConfidence,
+        usageCount: 0,
+        usableForAds: true,
+      };
+    }
+  }
+
+  const selectedPixel = needsPixel
+    ? pickSingleCandidate(
+        validatedPixels.filter(
+          (p) => p.sources.includes("direct_adspixels") || p.confidence >= AUTO_SELECT_MIN_CONFIDENCE,
+        ),
+      )
+    : null;
+  const selectedWebsite = needsWebsite ? pickSingleCandidate(validatedWebsites) : null;
+  const igCandidates = selectedPage
+    ? Array.from(igMap.values()).filter((ig) => ig.pageId === selectedPage!.id)
+    : Array.from(igMap.values());
+  const selectedIg = needsInstagram || igCandidates.length > 0
+    ? pickSingleCandidate(
+        igCandidates.sort((a, b) => b.confidence - a.confidence || b.usageCount - a.usageCount),
+      )
+    : null;
 
   const now = new Date().toISOString();
-  const saved = await upsertAdAccountProfile({
+  const profileUpdate: Parameters<typeof upsertAdAccountProfile>[0] = {
     connectionId: ctx.connectionId,
     adAccountId: input.adAccountId,
     businessId: input.businessId ?? ctx.metaBusinessId,
-    defaultPageId: selectedPage?.id,
-    defaultPageName: selectedPage?.name,
-    defaultInstagramId: selectedIg?.id,
-    defaultInstagramUsername: selectedIg?.username,
-    defaultPixelId: selectedPixel?.id,
-    defaultPixelName: selectedPixel?.name,
-    defaultPixelEventType: selectedPixel?.eventType,
-    defaultWebsiteUrl: selectedWebsite?.url,
-    defaultDomain: selectedWebsite?.domain,
-    pageSource: selectedPage?.sources[0],
-    pixelSource: selectedPixel?.sources[0] as PixelSource | undefined,
-    websiteSource: selectedWebsite?.sources[0],
-    instagramSource: selectedIg?.sources[0],
-    pageConfidence: selectedPage?.confidence,
-    pixelConfidence: selectedPixel?.confidence,
-    websiteConfidence: selectedWebsite?.confidence,
-    instagramConfidence: selectedIg?.confidence,
     lastDiscoveredAt: now,
     lastVerifiedAt: now,
-  });
+  };
+
+  if (selectedPage) {
+    profileUpdate.defaultPageId = selectedPage.id;
+    profileUpdate.defaultPageName = selectedPage.name;
+    profileUpdate.pageSource = selectedPage.sources[0];
+    profileUpdate.pageConfidence = selectedPage.confidence;
+  }
+  if (selectedIg) {
+    profileUpdate.defaultInstagramId = selectedIg.id;
+    profileUpdate.defaultInstagramUsername = selectedIg.username;
+    profileUpdate.instagramSource = selectedIg.sources[0];
+    profileUpdate.instagramConfidence = selectedIg.confidence;
+  }
+  if (needsPixel && selectedPixel) {
+    profileUpdate.defaultPixelId = selectedPixel.id;
+    profileUpdate.defaultPixelName = selectedPixel.name;
+    profileUpdate.defaultPixelEventType = selectedPixel.eventType;
+    profileUpdate.pixelSource = selectedPixel.sources[0] as PixelSource;
+    profileUpdate.pixelConfidence = selectedPixel.confidence;
+  }
+  if (needsWebsite && selectedWebsite) {
+    profileUpdate.defaultWebsiteUrl = selectedWebsite.url;
+    profileUpdate.defaultDomain = selectedWebsite.domain;
+    profileUpdate.websiteSource = selectedWebsite.sources[0];
+    profileUpdate.websiteConfidence = selectedWebsite.confidence;
+  }
+
+  const saved = await upsertAdAccountProfile(profileUpdate);
 
   const needsManualSetup: string[] = [];
   if (needsPage && !saved.defaultPageId && validatedPages.length === 0) needsManualSetup.push("page");
