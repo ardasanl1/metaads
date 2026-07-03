@@ -18,6 +18,7 @@ import { useAdAccountProfile } from "@/hooks/use-ad-account-profile";
 import {
   buildSurveyFlow,
   BUSINESS_GOAL_OPTIONS,
+  canProceedFromQuestion,
   getDestinationLabel,
   resolveRecipeFromAnswers,
 } from "@/services/campaign-questionnaire-engine";
@@ -132,6 +133,29 @@ export function CampaignSurveyFlow() {
   }, [accountProfile.discovery, accountProfile.defaultWebsiteUrl, accountProfile.applyToSelectedAssets, snap.setSelectedAssets]);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  useEffect(() => {
+    setIdx((current) => {
+      if (flow.length === 0) return 0;
+      if (current >= flow.length) return flow.length - 1;
+      return current;
+    });
+  }, [flow.length]);
+
+  const canProceed = q ? canProceedFromQuestion(q.id, answers) : false;
+
+  function goNext() {
+    if (!q) return;
+    if (!canProceedFromQuestion(q.id, answers)) {
+      toast.error("Devam etmek için bu adımı tamamlayın");
+      return;
+    }
+    setIdx((i) => Math.min(flow.length - 1, i + 1));
+  }
+
+  function goBack() {
+    setIdx((i) => Math.max(0, i - 1));
+  }
 
   if (!accountLoading && status && !status.connected) {
     return (
@@ -444,11 +468,11 @@ export function CampaignSurveyFlow() {
       </div>
 
       <WizardFooter>
-        <Button variant="outline" disabled={idx === 0} onClick={() => setIdx((i) => i - 1)}>
+        <Button variant="outline" disabled={idx === 0} onClick={goBack}>
           Geri
         </Button>
         {q?.id !== "review" ? (
-          <Button onClick={() => setIdx((i) => Math.min(flow.length - 1, i + 1))}>
+          <Button disabled={!canProceed} onClick={goNext}>
             Devam Et
           </Button>
         ) : (

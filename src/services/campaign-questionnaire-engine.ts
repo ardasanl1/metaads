@@ -298,6 +298,64 @@ export function buildSurveyFlow(answers: CampaignQuestionnaireAnswers): SurveyQu
   return flow;
 }
 
+export function canProceedFromQuestion(
+  questionId: SurveyQuestionId,
+  answers: CampaignQuestionnaireAnswers,
+): boolean {
+  switch (questionId) {
+    case "business_goal":
+      return Boolean(answers.businessGoal);
+    case "lead_collection_method":
+      return Boolean(answers.followUpAnswers.lead_collection_method);
+    case "conversion_destination":
+      return Boolean(answers.conversionDestination);
+    case "desired_result":
+      return Boolean(answers.desiredResult);
+    case "video_priority":
+      return Boolean(answers.followUpAnswers.video_priority);
+    case "budget":
+      return answers.dailyBudget > 0 && Boolean(answers.startDate?.trim());
+    case "audience":
+      return answers.audience.locations.length > 0;
+    case "assets": {
+      const recipeId = resolveRecipeFromAnswers(answers);
+      if (!recipeId) return false;
+      const recipe = getCampaignRecipe(recipeId);
+      if (!recipe) return false;
+      const assets = answers.selectedAssets;
+      if (recipe.requiredAssets.includes("page") && !assets.page?.id) return false;
+      if (recipe.requiredAssets.includes("pixel") && !assets.pixel?.id) return false;
+      if (
+        (recipe.requiredUserFields.includes("websiteUrl") || recipeId === "SALES_WEBSITE") &&
+        !answers.creative.destinationUrl?.trim()
+      ) {
+        return false;
+      }
+      if (recipe.requiredAssets.includes("instantForm") && !assets.instantForm?.id) return false;
+      if (recipe.requiredAssets.includes("whatsapp") && !assets.whatsapp?.id) return false;
+      return true;
+    }
+    case "creative": {
+      const recipeId = resolveRecipeFromAnswers(answers);
+      const recipe = recipeId ? getCampaignRecipe(recipeId) : null;
+      const hasMedia = Boolean(answers.creative.media[0]?.imageHash);
+      const hasCopy =
+        Boolean(answers.creative.primaryText.trim()) && Boolean(answers.creative.headline.trim());
+      if (!hasMedia || !hasCopy) return false;
+      if (recipe?.requiredUserFields.includes("websiteUrl") && !answers.creative.destinationUrl?.trim()) {
+        return false;
+      }
+      return true;
+    }
+    case "special_category":
+      return answers.specialAdCategoryConfirmed;
+    case "review":
+      return true;
+    default:
+      return true;
+  }
+}
+
 export function getActiveSurveyQuestion(
   answers: CampaignQuestionnaireAnswers,
   currentIndex: number,
