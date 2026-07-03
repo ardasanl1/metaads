@@ -16,6 +16,7 @@ import {
   validatePixelCandidate,
 } from "@/lib/meta-historical-discovery";
 import { resolveFacebookPages, verifyFacebookPageById } from "@/lib/meta-page-resolver";
+import { resolveInstagramAccounts } from "@/lib/meta-instagram-resolver";
 import { resolveAdAccountPixels } from "@/lib/meta-pixel-resolver";
 import type {
   AccountProfileDiscoveryResult,
@@ -210,13 +211,37 @@ export async function discoverAdAccountProfile(input: {
     });
     directPixelCount = directPixels.pixels.length;
     for (const pixel of directPixels.pixels) {
+      const source: PixelSource = pixel.available ? "direct_adspixels" : "custom_conversion";
       pixelMap.set(pixel.id, {
         id: pixel.id,
         name: pixel.name,
-        sources: ["direct_adspixels"],
-        confidence: 100,
+        sources: [source],
+        confidence: pixel.available ? 100 : 50,
         usageCount: 1,
         lastFiredTime: pixel.lastFiredTime,
+      });
+    }
+  }
+
+  if (needsInstagram) {
+    const instagramResult = await resolveInstagramAccounts({
+      connectionId: ctx.connectionId,
+      adAccountId: input.adAccountId,
+      pages: Array.from(pageMap.values()).map((p) => ({
+        id: p.id,
+        name: p.name,
+        instagramBusinessAccountId: p.instagramBusinessAccountId,
+      })),
+    });
+    for (const ig of instagramResult.accounts) {
+      igMap.set(ig.id, {
+        id: ig.id,
+        username: ig.username,
+        name: ig.name ?? ig.username,
+        pageId: ig.pageId,
+        sources: ["ad_account_instagram"],
+        confidence: 100,
+        usageCount: 1,
       });
     }
   }
@@ -331,7 +356,9 @@ export async function discoverAdAccountProfile(input: {
   const validatedWebsites = sortWebsiteCandidates(Array.from(websiteMap.values()));
 
   const selectedPage = pickSingleCandidate(validatedPages);
-  const selectedPixel = pickSingleCandidate(validatedPixels);
+  const selectedPixel = pickSingleCandidate(
+    validatedPixels.filter((p) => p.sources.includes("direct_adspixels") || p.confidence >= AUTO_SELECT_MIN_CONFIDENCE),
+  );
   const selectedWebsite = pickSingleCandidate(validatedWebsites);
   const selectedIg = pickSingleCandidate(
     Array.from(igMap.values()).sort((a, b) => b.confidence - a.confidence || b.usageCount - a.usageCount),

@@ -176,25 +176,6 @@ export function CampaignSurveyFlow() {
     );
   }
 
-  const isOAuth = activeConnection?.authMethod === "oauth";
-  const needsMetaSetup =
-    isOAuth &&
-    activeConnection &&
-    !activeConnection.onboardingCompleted;
-
-  if (!accountLoading && needsMetaSetup) {
-    return (
-      <SectionCard
-        title="Meta hesap kurulumu gerekli"
-        description="Kampanya oluşturmadan önce işletme, reklam hesabı, sayfa ve pixel seçimlerini bir kez tamamlayın."
-      >
-        <Button asChild>
-          <a href="/settings/meta-setup">Hesap Kurulumuna Git</a>
-        </Button>
-      </SectionCard>
-    );
-  }
-
   const patch = (p: Partial<CampaignQuestionnaireAnswers>) => setAnswers((a) => ({ ...a, ...p }));
 
   async function onImage(file: File | null) {

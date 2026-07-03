@@ -19,7 +19,8 @@ const META_TOKEN_PERMISSIONS = [
   "ads_management",
   "business_management",
   "pages_show_list",
-  "pages_manage_ads",
+  "pages_read_engagement",
+  "instagram_basic",
 ] as const;
 
 function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
@@ -75,7 +76,7 @@ function SettingsBody() {
       }
 
       setAccessToken("");
-      setMessage("İşletme bağlandı. Aşağıdan reklam hesabı ekleyebilirsiniz.");
+      setMessage("Bağlantı kuruldu. Reklam hesabı eklediğinizde Page, Pixel ve Instagram otomatik keşfedilir.");
       retry();
     } catch {
       setError("Bağlantı kurulurken bir hata oluştu");
@@ -105,8 +106,8 @@ function SettingsBody() {
   return (
     <div className="space-y-6">
       <SectionCard
-        title="Meta ile Bağlan"
-        description="Önerilen yöntem. Business, reklam hesabı, Page, Instagram ve Pixel varlıkları otomatik senkronize edilir."
+        title="Meta Access Token Bağlantısı"
+        description="Graph API Explorer veya Business Manager System User tokenınızı yapıştırın. Page, Pixel ve Instagram varlıkları otomatik keşfedilir."
         actions={
           <Badge variant={status?.connected ? "success" : "muted"}>
             {connections.length > 0 ? `${connections.length} bağlantı` : "Bağlı değil"}
@@ -124,21 +125,45 @@ function SettingsBody() {
           </p>
         )}
 
-        <div className="flex flex-wrap gap-2">
-          <Button asChild>
-            <a href="/api/meta/oauth/connect">Meta ile Bağlan</a>
+        <form onSubmit={handleConnect} className="space-y-3">
+          <div className="space-y-1.5">
+            <label htmlFor="accessToken" className="text-sm font-medium text-foreground">
+              Access Token
+            </label>
+            <Input
+              id="accessToken"
+              type="password"
+              value={accessToken}
+              onChange={(e) => setAccessToken(e.target.value)}
+              placeholder="EAAxxxx..."
+              required
+              autoComplete="off"
+              className="bg-background text-foreground"
+            />
+            <p className="text-xs text-muted-foreground">
+              Nereden:{" "}
+              <ExternalLink href="https://developers.facebook.com/tools/explorer/">
+                Graph API Explorer
+              </ExternalLink>
+              {" · "}
+              <ExternalLink href="https://business.facebook.com/settings/system-users">
+                System Users
+              </ExternalLink>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Önerilen izinler:{" "}
+              {META_TOKEN_PERMISSIONS.map((permission) => (
+                <code key={permission} className="mr-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                  {permission}
+                </code>
+              ))}
+            </p>
+          </div>
+
+          <Button type="submit" disabled={connecting}>
+            {connecting ? "Bağlanıyor..." : "Bağlan"}
           </Button>
-          {activeConnectionId && connections.find((c) => c.id === activeConnectionId)?.authMethod === "oauth" && (
-            <>
-              <Button variant="outline" asChild>
-                <a href="/api/meta/oauth/connect?reauthorize=1">Bağlantıyı yeniden yetkilendir</a>
-              </Button>
-              <Button variant="outline" asChild>
-                <Link href="/settings/meta-setup">Hesap kurulumu</Link>
-              </Button>
-            </>
-          )}
-        </div>
+        </form>
 
         {connections.length > 0 && (
           <div className="mt-6 space-y-2">
@@ -151,9 +176,7 @@ function SettingsBody() {
                 <div className="text-sm">
                   <p className="font-medium">{getFirmDisplayName(connection)}</p>
                   <p className="text-xs text-muted-foreground">
-                    {connection.authMethod === "oauth" ? "OAuth" : "Legacy"} ·{" "}
                     {connection.linkedAdAccounts.length} reklam hesabı
-                    {connection.onboardingCompleted ? " · Kurulum tamam" : ""}
                   </p>
                 </div>
                 <Button
@@ -169,80 +192,37 @@ function SettingsBody() {
             ))}
           </div>
         )}
-      </SectionCard>
 
-      <SectionCard
-        title="Legacy / Gelişmiş bağlantı"
-        description="Manuel Graph API Explorer tokenı. Granular varlık erişimi içermeyebilir; tam otomatik senkronizasyon için Meta ile Bağlan kullanın."
-      >
-        <form onSubmit={handleConnect} className="space-y-3">
-            <div className="space-y-1.5">
-              <label htmlFor="accessToken" className="text-sm font-medium text-foreground">
-                İşletme Erişim Tokenı
-              </label>
-              <Input
-                id="accessToken"
-                type="password"
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-                placeholder="EAAxxxx..."
-                required
-                autoComplete="off"
-                className="bg-background text-foreground"
-              />
-              <p className="text-xs text-muted-foreground">
-                Nereden:{" "}
-                <ExternalLink href="https://developers.facebook.com/tools/explorer/">
-                  Graph API Explorer
-                </ExternalLink>
-                {" → "}
-                <ExternalLink href="https://developers.facebook.com/docs/graph-api/overview#access-tokens">
-                  Access Token rehberi
-                </ExternalLink>
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Kalıcı kullanım için:{" "}
-                <ExternalLink href="https://business.facebook.com/settings/system-users">
-                  Business Manager → System Users
-                </ExternalLink>
-                {" "}üzerinden işletme tokenı oluşturun.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Gerekli izinler:{" "}
-                {META_TOKEN_PERMISSIONS.map((permission) => (
-                  <code key={permission} className="mr-1 rounded bg-muted px-1 py-0.5 text-[11px]">
-                    {permission}
-                  </code>
-                ))}
-              </p>
-            </div>
-
-            <Button type="submit" disabled={connecting}>
-              {connecting ? "Bağlanıyor..." : "İşletme Bağla"}
-            </Button>
-          </form>
+        {process.env.NODE_ENV !== "production" && (
+          <p className="mt-4 text-xs text-muted-foreground">
+            Geliştirme:{" "}
+            <Link href="/settings/asset-diagnostics" className="text-primary underline-offset-2 hover:underline">
+              Varlık tanılama
+            </Link>
+          </p>
+        )}
       </SectionCard>
 
       {status?.connected && activeConnectionId && (
         <SectionCard
           title="Reklam Hesapları"
-          description="İşletme seçin ve reklam hesaplarını Meta ID ile ekleyin. Business eşleşmesi otomatik yapılır."
+          description="Reklam hesabı eklediğinizde Page, Pixel ve Instagram profilinize otomatik kaydedilir."
         >
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-              <FirmSelector
-                connections={connections}
-                value={activeConnectionId}
-                onChange={(connectionId) => void selectFirm(connectionId)}
-                loading={accountLoading}
-              />
-              <AdAccountSelector
-                adAccounts={adAccounts}
-                value={selectedAdAccountId}
-                onChange={(adAccountId) => void selectAdAccountById(adAccountId)}
-                loading={accountLoading}
-              />
-            </div>
-            <AddAdAccountForm onAdd={addAdAccountManually} disabled={accountLoading} />
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <FirmSelector
+              connections={connections}
+              value={activeConnectionId}
+              onChange={(connectionId) => void selectFirm(connectionId)}
+              loading={accountLoading}
+            />
+            <AdAccountSelector
+              adAccounts={adAccounts}
+              value={selectedAdAccountId}
+              onChange={(adAccountId) => void selectAdAccountById(adAccountId)}
+              loading={accountLoading}
+            />
+          </div>
+          <AddAdAccountForm onAdd={addAdAccountManually} disabled={accountLoading} />
         </SectionCard>
       )}
     </div>

@@ -11,6 +11,7 @@ import {
   pickPreferredBusinessMatch,
 } from "@/lib/meta-business-discovery";
 import { handleApiError, jsonError } from "@/lib/api-utils";
+import { discoverAdAccountProfile } from "@/lib/ad-account-profile-resolver";
 import { normalizeAdAccountId } from "@/utils/ad-account";
 import type { BusinessDiscoveryMatch } from "@/types/meta/business-discovery";
 
@@ -132,6 +133,17 @@ export async function POST(request: NextRequest) {
       adAccountName: verified.accountName,
       select: true,
     });
+
+    try {
+      await discoverAdAccountProfile({
+        connectionId: connection.id,
+        adAccountId: verified.adAccountId,
+        businessId: selectedMatch.businessId,
+        forceRefresh: true,
+      });
+    } catch {
+      // hesap eklendi; profil kesfi sonra tekrar denenebilir
+    }
 
     return NextResponse.json({
       ok: true,

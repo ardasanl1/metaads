@@ -3,6 +3,7 @@ import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
 import { saveMetaConnection, setActiveConnection } from "@/lib/db";
 import { MetaApiError, normalizeAdAccountId, resolveTokenIdentity, verifyMetaConnection } from "@/lib/meta";
 import { handleApiError, jsonError } from "@/lib/api-utils";
+import { discoverAdAccountProfile } from "@/lib/ad-account-profile-resolver";
 
 export async function POST(request: NextRequest) {
   if (!isAuthenticatedRequest(request)) {
@@ -52,6 +53,19 @@ export async function POST(request: NextRequest) {
     });
 
     await setActiveConnection(saved.id);
+
+    if (normalizedAccountId) {
+      try {
+        await discoverAdAccountProfile({
+          connectionId: saved.id,
+          adAccountId: normalizedAccountId,
+          businessId: manualBusinessId || verified.metaBusinessId || undefined,
+          forceRefresh: true,
+        });
+      } catch {
+        // profil kesfi basarisiz olsa da baglanti kaydi tamamlanir
+      }
+    }
 
     return NextResponse.json({
       ok: true,

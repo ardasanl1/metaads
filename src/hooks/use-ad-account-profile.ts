@@ -68,15 +68,8 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
             required,
           );
 
-        if (profileRecord && (!forceRefresh || input.authMethod === "oauth")) {
+        if (profileComplete && !forceRefresh) {
           if (requestId !== requestRef.current) return;
-          if (input.authMethod === "oauth" && !profileComplete && !input.onboardingCompleted) {
-            setError(
-              "Meta hesap kurulumu gerekli. Ayarlar > Hesap kurulumu sayfasini tamamlayin.",
-            );
-            setDiscovery(null);
-            return;
-          }
           setDiscovery({
             success: true,
             profile: {
@@ -131,28 +124,9 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
               adSetsScanned: 0,
               creativesScanned: 0,
               fromCache: true,
-              needsManualSetup: profileComplete
-                ? []
-                : (["page", "pixel", "website"] as const).filter((k) => {
-                    if (k === "page") return required.page && !profileRecord.page?.id;
-                    if (k === "pixel") return required.pixel && !profileRecord.pixel?.id;
-                    return required.website && !profileRecord.website?.url;
-                  }),
+              needsManualSetup: [],
             },
           });
-          if (profileComplete || input.authMethod === "oauth") {
-            setLoading(false);
-            return;
-          }
-        }
-
-        if (input.authMethod === "oauth") {
-          setError("Kayitli profil bulunamadi. Meta hesap kurulumunu tamamlayin.");
-          setDiscovery(null);
-          return;
-        }
-
-        if (!forceRefresh) {
           setLoading(false);
           return;
         }
@@ -161,8 +135,7 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
           connectionId: input.connectionId,
           businessId: input.businessId,
           adAccountId: input.adAccountId,
-          recipeId: input.recipeId ?? undefined,
-          forceRefresh: true,
+          forceRefresh: forceRefresh || !profileComplete,
         });
         if (requestId !== requestRef.current) return;
         setDiscovery(result);
@@ -179,8 +152,6 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
       input.businessId,
       input.adAccountId,
       input.recipeId,
-      input.authMethod,
-      input.onboardingCompleted,
       required,
     ],
   );

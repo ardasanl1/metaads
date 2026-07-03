@@ -12,7 +12,8 @@ import { normalizeAdAccountId } from "@/utils/ad-account";
 import type { MetaPageOption, MetaPageSource } from "@/types/meta-assets";
 
 const PAGE_FETCH_LIMIT = 500;
-const ME_ACCOUNTS_FIELDS = "id,name,tasks,instagram_business_account,picture";
+const ME_ACCOUNTS_FIELDS = "id,name,tasks,picture,instagram_business_account";
+const BUSINESS_PAGE_FIELDS = "id,name,picture,instagram_business_account";
 const DIRECT_PAGE_FIELDS = "id,name,instagram_business_account,picture";
 
 export type PageDiscoveryError = {
@@ -27,6 +28,7 @@ export type PageDiscoveryStats = {
   promotePagesCount: number;
   userAccountsRequestSucceeded: boolean;
   userAccountsCount: number;
+  businessesCount: number;
   businessOwnedRequestSucceeded: boolean;
   businessOwnedCount: number;
   businessClientRequestSucceeded: boolean;
@@ -46,6 +48,7 @@ export type PageResolverStatusCode =
   | "profile_page_verification_failed"
   | "promote_pages_fallback_empty"
   | "promote_pages_fallback_success"
+  | "business_pages_merged"
   | "connection_token_subject_resolved";
 
 export type PageResolverDiagnostic = {
@@ -358,12 +361,15 @@ export async function resolveFacebookPages(input: {
     promotePagesCount: 0,
     userAccountsRequestSucceeded: false,
     userAccountsCount: 0,
+    businessesCount: 0,
     businessOwnedRequestSucceeded: false,
     businessOwnedCount: 0,
     businessClientRequestSucceeded: false,
     businessClientCount: 0,
     mergedPageCount: 0,
   };
+
+  const isSystemUser = tokenDiagnostics.tokenType === "system_user";
 
   let tokenSubject: { id: string; name?: string } | undefined;
   try {
@@ -432,9 +438,75 @@ export async function resolveFacebookPages(input: {
       }
 
       for (const page of userAccounts.items) {
+        if (isSystemUser) continue;
         const mapped = mapRawPage(page, "user_accounts");
         if (!mapped) continue;
         byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
+      }
+    }
+  }
+
+  if (!status.includes("token_invalid")) {
+    type RawBusiness = { id: string; name?: string };
+    const businesses = await fetchPagedWithToken<RawBusiness>(
+      "me/businesses?fields=id,name&limit=100",
+      ctx.accessToken,
+      ctx.connectionId,
+    );
+
+    if (businesses.error) {
+      errors.push({ ...businesses.error, source: "me/businesses" });
+    } else {
+      stats.businessesCount = businesses.items.length;
+      let ownedTotal = 0;
+      let clientTotal = 0;
+      let ownedOk = true;
+      let clientOk = true;
+
+      for (const business of businesses.items) {
+        if (!business.id) continue;
+
+        const owned = await fetchPagedWithToken<RawPage>(
+          `${business.id}/owned_pages?fields=${BUSINESS_PAGE_FIELDS}&limit=100`,
+          ctx.accessToken,
+          ctx.connectionId,
+        );
+        if (owned.error) {
+          errors.push({ ...owned.error, source: `${business.id}/owned_pages` });
+          ownedOk = false;
+        } else {
+          ownedTotal += owned.items.length;
+          for (const page of owned.items) {
+            const mapped = mapRawPage(page, "business_owned");
+            if (!mapped) continue;
+            byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
+          }
+        }
+
+        const client = await fetchPagedWithToken<RawPage>(
+          `${business.id}/client_pages?fields=${BUSINESS_PAGE_FIELDS}&limit=100`,
+          ctx.accessToken,
+          ctx.connectionId,
+        );
+        if (client.error) {
+          errors.push({ ...client.error, source: `${business.id}/client_pages` });
+          clientOk = false;
+        } else {
+          clientTotal += client.items.length;
+          for (const page of client.items) {
+            const mapped = mapRawPage(page, "business_client");
+            if (!mapped) continue;
+            byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
+          }
+        }
+      }
+
+      stats.businessOwnedRequestSucceeded = ownedOk;
+      stats.businessOwnedCount = ownedTotal;
+      stats.businessClientRequestSucceeded = clientOk;
+      stats.businessClientCount = clientTotal;
+      if (ownedTotal > 0 || clientTotal > 0) {
+        status.push("business_pages_merged");
       }
     }
   }
@@ -483,7 +555,8 @@ export async function resolveFacebookPages(input: {
   };
 
   let adAccountAccessible = false;
-  const shouldTryPromoteFallback = byId.size === 0 && Boolean(accountPath);
+  const shouldTryPromoteFallback =
+    byId.size === 0 && Boolean(accountPath) && !isSystemUser;
 
   if (accountPath) {
     try {
@@ -570,6 +643,8 @@ export async function resolveFacebookPages(input: {
 
   const requestSucceeded =
     stats.userAccountsRequestSucceeded ||
+    stats.businessOwnedRequestSucceeded ||
+    stats.businessClientRequestSucceeded ||
     profilePageMeta.directLookupSucceeded ||
     stats.promotePagesRequestSucceeded ||
     Boolean(tokenSubject);

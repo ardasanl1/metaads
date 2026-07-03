@@ -7,6 +7,7 @@ import {
   updateSelectedAdAccount,
 } from "@/lib/db";
 import { handleApiError, jsonError } from "@/lib/api-utils";
+import { discoverAdAccountProfile } from "@/lib/ad-account-profile-resolver";
 import { adAccountIdsMatch, normalizeAdAccountId } from "@/utils/ad-account";
 
 export async function POST(request: NextRequest) {
@@ -54,6 +55,17 @@ export async function POST(request: NextRequest) {
       adAccountId: account.id,
       adAccountName: account.name,
     });
+
+    try {
+      await discoverAdAccountProfile({
+        connectionId: connection.id,
+        adAccountId: account.id,
+        businessId: connection.metaBusinessId ?? undefined,
+        forceRefresh: true,
+      });
+    } catch {
+      // secim basarili; profil kesfi sonra tekrar denenebilir
+    }
 
     return NextResponse.json({
       ok: true,
