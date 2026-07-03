@@ -1,5 +1,5 @@
 import type { ParsedInsights } from "@/types/meta";
-import { StatCard } from "@/components/cards/StatCard";
+import { StatCard } from "@/components/shared/StatCard";
 import { DASHBOARD_STAT_ITEMS } from "@/utils/insight-labels";
 
 type StatsGridProps = {

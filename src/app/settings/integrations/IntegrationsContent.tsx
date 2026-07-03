@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { Plug } from "lucide-react";
 import PanelLayout from "@/components/PanelLayout";
+import { SectionCard } from "@/components/shared/SectionCard";
+import { ErrorState } from "@/components/shared/ErrorState";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { fetchBusinessDiscovery } from "@/services/meta/client";
@@ -45,96 +48,95 @@ function IntegrationsBody() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Meta Entegrasyonları</CardTitle>
-            <CardDescription>
-              Business keşfi ve reklam hesabı eşleştirmesi Ayarlar üzerinden yönetilir.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Reklam hesabı eklemek ve Business eşleştirmesi için{" "}
-              <a href="/settings" className="text-primary hover:underline">
-                Ayarlar
-              </a>{" "}
-              sayfasını kullanın.
-            </p>
-          </CardContent>
-        </Card>
+    <div className="space-y-6">
+      <SectionCard
+        title="Meta Entegrasyonları"
+        description="Business keşfi ve reklam hesabı eşleştirmesi Ayarlar üzerinden yönetilir."
+        actions={
+          <Button asChild>
+            <Link href="/settings">
+              <Plug className="mr-2 h-4 w-4" />
+              Firma Bağla
+            </Link>
+          </Button>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          Reklam hesabı eklemek ve Business eşleştirmesi için{" "}
+          <Link href="/settings" className="font-medium text-primary hover:underline">
+            Ayarlar
+          </Link>{" "}
+          sayfasını kullanın.
+        </p>
+      </SectionCard>
 
-        {isDev && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Business Tanılama (geliştirme)</CardTitle>
-              <CardDescription>
-                Seçili bağlantının tokenı ile Meta Business keşfi çalıştırır. Token gösterilmez.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">connectionId</label>
-                <Input value={activeConnectionId ?? ""} readOnly className="bg-muted" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Reklam hesabı ID</label>
-                <Input
-                  value={adAccountId}
-                  onChange={(e) => setAdAccountId(e.target.value)}
-                  placeholder="act_123456789"
-                />
-              </div>
-              <Button type="button" disabled={loading} onClick={() => void runDiagnostics()}>
-                {loading ? "Çalışıyor..." : "Business Tanılama"}
-              </Button>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              {result && (
-                <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4 text-sm">
-                  <div>
-                    <b>Token kullanıcısı:</b> {result.tokenUser.name} ({result.tokenUser.id})
-                  </div>
-                  <div>
-                    <b>Granted permissions:</b>{" "}
-                    {result.permissions.granted.length > 0
-                      ? result.permissions.granted.join(", ")
-                      : "—"}
-                  </div>
-                  <div>
-                    <b>Declined permissions:</b>{" "}
-                    {result.permissions.declined.length > 0
-                      ? result.permissions.declined.join(", ")
-                      : "—"}
-                  </div>
-                  <div>
-                    <b>Business sayısı:</b> {result.businessesFound}
-                  </div>
-                  <div>
-                    <b>Normalize ad account:</b> {result.normalizedAdAccountId}
-                  </div>
-                  {result.businesses.map((business) => (
-                    <div key={business.id} className="rounded border border-border p-2">
-                      <div>
-                        <b>{business.name}</b> ({business.id})
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        owned: {business.ownedAdAccountCount}, client: {business.clientAdAccountCount}
-                        {business.matched ? " — eşleşti" : ""}
-                      </div>
-                    </div>
-                  ))}
-                  <div>
-                    <b>Eşleşen Business:</b>{" "}
-                    {result.matchedBusinesses.length > 0
-                      ? result.matchedBusinesses
-                          .map((b) => `${b.name} (${b.id}, ${b.relationship})`)
-                          .join("; ")
-                      : "Yok"}
-                  </div>
-                  {result.errors.length > 0 && (
+      {isDev && (
+        <SectionCard
+          title="Business Tanılama"
+          description="Geliştirme ortamı — seçili bağlantının tokenı ile Meta Business keşfi çalıştırır. Token gösterilmez."
+        >
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Bağlantı ID</label>
+              <Input value={activeConnectionId ?? ""} readOnly className="bg-muted" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Reklam hesabı ID</label>
+              <Input
+                value={adAccountId}
+                onChange={(e) => setAdAccountId(e.target.value)}
+                placeholder="act_123456789"
+              />
+            </div>
+            <Button type="button" disabled={loading} onClick={() => void runDiagnostics()}>
+              {loading ? "Çalışıyor..." : "Business Tanılama"}
+            </Button>
+            {error && <ErrorState message={error} />}
+            {result && (
+              <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4 text-sm">
+                <div>
+                  <b>Token kullanıcısı:</b> {result.tokenUser.name} ({result.tokenUser.id})
+                </div>
+                <div>
+                  <b>İzinler:</b>{" "}
+                  {result.permissions.granted.length > 0 ? result.permissions.granted.join(", ") : "—"}
+                </div>
+                <div>
+                  <b>Business sayısı:</b> {result.businessesFound}
+                </div>
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer font-medium text-foreground">Teknik detaylar</summary>
+                  <div className="mt-2 space-y-2">
                     <div>
-                      <b>Hatalar:</b>
-                      <ul className="mt-1 list-disc pl-5 text-destructive">
+                      <b>Declined permissions:</b>{" "}
+                      {result.permissions.declined.length > 0
+                        ? result.permissions.declined.join(", ")
+                        : "—"}
+                    </div>
+                    <div>
+                      <b>Normalize ad account:</b> {result.normalizedAdAccountId}
+                    </div>
+                    {result.businesses.map((business) => (
+                      <div key={business.id} className="rounded border border-border p-2">
+                        <div>
+                          <b>{business.name}</b> ({business.id})
+                        </div>
+                        <div>
+                          owned: {business.ownedAdAccountCount}, client: {business.clientAdAccountCount}
+                          {business.matched ? " — eşleşti" : ""}
+                        </div>
+                      </div>
+                    ))}
+                    <div>
+                      <b>Eşleşen Business:</b>{" "}
+                      {result.matchedBusinesses.length > 0
+                        ? result.matchedBusinesses
+                            .map((b) => `${b.name} (${b.id}, ${b.relationship})`)
+                            .join("; ")
+                        : "Yok"}
+                    </div>
+                    {result.errors.length > 0 && (
+                      <ul className="list-disc pl-5 text-destructive">
                         {result.errors.map((item, index) => (
                           <li key={`${item.step}-${index}`}>
                             [{item.step}] {item.message}
@@ -142,20 +144,25 @@ function IntegrationsBody() {
                           </li>
                         ))}
                       </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-      </div>
+                    )}
+                  </div>
+                </details>
+              </div>
+            )}
+          </div>
+        </SectionCard>
+      )}
+    </div>
   );
 }
 
 export default function IntegrationsContent() {
   return (
-    <PanelLayout title="Entegrasyonlar">
+    <PanelLayout
+      title="Meta Entegrasyonları"
+      subtitle="Bağlantılarınızı yönetin ve tanılama çalıştırın"
+      showAccountBar={false}
+    >
       <IntegrationsBody />
     </PanelLayout>
   );

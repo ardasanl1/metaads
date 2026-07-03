@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
+import { HelpCircle } from "lucide-react";
 import PanelLayout from "@/components/PanelLayout";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { CampaignTable } from "@/components/campaigns/CampaignTable";
 import { DataDateRangeCaption } from "@/components/cards/DataDateRangeCaption";
 import { QuickDateFilterBar } from "@/components/filters/QuickDateFilterBar";
+import { SectionCard } from "@/components/shared/SectionCard";
+import { ErrorState } from "@/components/shared/ErrorState";
 import { Button } from "@/components/ui/button";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { useCampaigns } from "@/hooks/use-campaigns";
@@ -43,77 +46,78 @@ function DashboardBody() {
   const loading = accountLoading || campaignsLoading;
 
   return (
-    <div className="space-y-6">
+    <>
       {!accountLoading && status && !status.connected && (
-        <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-          Özet verileri görmek için Meta hesabını bağlayın.{" "}
-          <Link href="/settings" className="text-primary hover:underline">
-            Ayarlara git
-          </Link>
-        </div>
+        <SectionCard title="Meta bağlantısı gerekli" description="Özet verileri görmek için hesabınızı bağlayın.">
+          <Button asChild>
+            <Link href="/settings">Ayarlara Git</Link>
+          </Button>
+        </SectionCard>
       )}
 
       {!accountLoading && status?.connected && !isReady && (
-        <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-950/30 sm:p-6">
-          <p className="text-sm text-yellow-900 dark:text-yellow-200">
-            Özet verileri görmek için Ayarlar sayfasından reklam hesabı ekleyin ve seçin.
-          </p>
-          <Button asChild className="mt-3" variant="outline" size="sm">
+        <SectionCard
+          title="Reklam hesabı seçin"
+          description="Özet verileri görmek için bir reklam hesabı ekleyin ve seçin."
+        >
+          <Button asChild variant="outline">
             <Link href="/settings">Ayarlara Git</Link>
           </Button>
-        </div>
+        </SectionCard>
       )}
 
       {displayError && (
-        <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-destructive">{displayError}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              retry();
-              void reload();
-            }}
-          >
-            Tekrar Dene
-          </Button>
-        </div>
+        <ErrorState
+          message={displayError}
+          onRetry={() => {
+            retry();
+            void reload();
+          }}
+        />
       )}
 
-      {isReady && (
-        <QuickDateFilterBar value={dateFilterState} onChange={setState} />
-      )}
+      {isReady && <QuickDateFilterBar value={dateFilterState} onChange={setState} />}
 
       <DashboardStats dateFilter={dateFilterState} />
 
-      <div>
-        <h2 className="mb-3 text-base font-semibold">Son Kampanyalar</h2>
-        <div className="space-y-2">
-          <CampaignTable
-            key={`${dateFilterState.quickDateFilter}-${dateFilterState.since}-${dateFilterState.until}-${accountKey}`}
-            campaigns={recentCampaigns}
-            loading={loading || !isReady}
-            sortField={sortField}
-            sortDirection={sortDirection}
-            onSort={toggleSort}
+      <SectionCard title="Son Kampanyalar" description="Seçili hesaptaki en güncel kampanyalar">
+        <CampaignTable
+          key={`${dateFilterState.quickDateFilter}-${dateFilterState.since}-${dateFilterState.until}-${accountKey}`}
+          campaigns={recentCampaigns}
+          loading={loading || !isReady}
+          sortField={sortField}
+          sortDirection={sortDirection}
+          onSort={toggleSort}
+        />
+        {isReady && !loading && (
+          <DataDateRangeCaption
+            filter={dateFilterState.quickDateFilter}
+            since={dateFilterState.since}
+            until={dateFilterState.until}
+            accountName={selectedAdAccountName}
+            className="mt-3"
           />
-          {isReady && !loading && (
-            <DataDateRangeCaption
-              filter={dateFilterState.quickDateFilter}
-              since={dateFilterState.since}
-              until={dateFilterState.until}
-              accountName={selectedAdAccountName}
-            />
-          )}
-        </div>
-      </div>
-    </div>
+        )}
+      </SectionCard>
+    </>
   );
 }
 
 export default function DashboardContent() {
   return (
-    <PanelLayout title="Genel Bakış">
+    <PanelLayout
+      title="Genel Bakış"
+      subtitle="Reklam performansınızı tek ekranda izleyin"
+      wide
+      actions={
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/settings">
+            <HelpCircle className="mr-2 h-4 w-4" />
+            Yardım
+          </Link>
+        </Button>
+      }
+    >
       <DashboardBody />
     </PanelLayout>
   );

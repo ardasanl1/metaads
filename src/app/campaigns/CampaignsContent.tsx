@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import PanelLayout from "@/components/PanelLayout";
 import { CampaignTable } from "@/components/campaigns/CampaignTable";
 import { CampaignFiltersBar } from "@/components/campaigns/CampaignFilters";
 import { CampaignEmptyState } from "@/components/campaigns/CampaignEmptyState";
 import { DataDateRangeCaption } from "@/components/cards/DataDateRangeCaption";
+import { SectionCard } from "@/components/shared/SectionCard";
+import { ErrorState } from "@/components/shared/ErrorState";
 import { Button } from "@/components/ui/button";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { useCampaigns } from "@/hooks/use-campaigns";
@@ -38,65 +41,43 @@ function CampaignsBody() {
   const showEmpty = isReady && !loading && allCampaigns.length === 0;
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        {isReady ? (
-          <Button asChild>
-            <Link href="/campaigns/new">Yeni Kampanya</Link>
-          </Button>
-        ) : (
-          <Button disabled title="Önce Meta hesabını bağlayın ve reklam hesabı seçin">
-            Yeni Kampanya
-          </Button>
-        )}
-      </div>
-
+    <>
       {!accountLoading && status && !status.connected && (
-        <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-950/30 sm:p-6">
-          <p className="text-sm text-yellow-900 dark:text-yellow-200">
-            Gerçek kampanyaları görmek için Meta hesabınızı bağlayın.
-          </p>
-          <Button asChild className="mt-3">
+        <SectionCard title="Meta bağlantısı gerekli" description="Kampanyaları görmek için hesabınızı bağlayın.">
+          <Button asChild>
             <Link href="/settings">Ayarlara Git</Link>
           </Button>
-        </div>
+        </SectionCard>
       )}
 
       {!accountLoading && status?.connected && !isReady && (
-        <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-950/30 sm:p-6">
-          <p className="text-sm text-yellow-900 dark:text-yellow-200">
-            Kampanyaları görmek için Ayarlar sayfasından reklam hesabı ekleyin ve seçin.
-          </p>
-          <Button asChild className="mt-3" variant="outline" size="sm">
+        <SectionCard title="Reklam hesabı seçin" description="Kampanyaları listelemek için reklam hesabı ekleyin.">
+          <Button asChild variant="outline">
             <Link href="/settings">Ayarlara Git</Link>
           </Button>
-        </div>
+        </SectionCard>
       )}
 
       {displayError && (
-        <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-destructive">{displayError}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              retry();
-              void reload();
-            }}
-          >
-            Tekrar Dene
-          </Button>
-        </div>
+        <ErrorState
+          message={displayError}
+          onRetry={() => {
+            retry();
+            void reload();
+          }}
+        />
       )}
 
       {isReady && (
-        <CampaignFiltersBar filters={filters} campaigns={allCampaigns} onChange={setFilters} />
+        <SectionCard noPadding contentClassName="p-4 sm:p-5">
+          <CampaignFiltersBar filters={filters} campaigns={allCampaigns} onChange={setFilters} />
+        </SectionCard>
       )}
 
       {showEmpty ? (
         <CampaignEmptyState />
       ) : (
-        <div className="space-y-2">
+        <SectionCard title="Kampanya Listesi" noPadding>
           <CampaignTable
             campaigns={campaigns}
             loading={loading}
@@ -105,22 +86,36 @@ function CampaignsBody() {
             onSort={toggleSort}
           />
           {isReady && !loading && (
-            <DataDateRangeCaption
-              filter={filters.quickDateFilter}
-              since={filters.since}
-              until={filters.until}
-              accountName={selectedAdAccountName}
-            />
+            <div className="border-t border-border px-4 py-3 sm:px-6">
+              <DataDateRangeCaption
+                filter={filters.quickDateFilter}
+                since={filters.since}
+                until={filters.until}
+                accountName={selectedAdAccountName}
+              />
+            </div>
           )}
-        </div>
+        </SectionCard>
       )}
-    </div>
+    </>
   );
 }
 
 export default function CampaignsContent() {
   return (
-    <PanelLayout title="Kampanyalar">
+    <PanelLayout
+      title="Kampanyalar"
+      subtitle="Tüm kampanyalarınızı yönetin ve performansı izleyin"
+      wide
+      actions={
+        <Button asChild>
+          <Link href="/campaigns/new">
+            <Plus className="mr-2 h-4 w-4" />
+            Yeni Kampanya
+          </Link>
+        </Button>
+      }
+    >
       <CampaignsBody />
     </PanelLayout>
   );

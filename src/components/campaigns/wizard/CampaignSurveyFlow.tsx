@@ -12,9 +12,10 @@ import type {
   SelectedMetaLocation,
 } from "@/types/campaign-questionnaire";
 import type { WizardCreateStep, WizardGender, WizardSpecialAdCategory } from "@/types/campaign-wizard";
-import { formatPageOptionLabel } from "@/utils/meta-page";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { useAccountSnapshot } from "@/hooks/use-account-snapshot";
+import { useAdAccountProfile } from "@/hooks/use-ad-account-profile";
+import { AccountProfilePanel } from "./AccountProfilePanel";
 import {
   buildSurveyFlow,
   BUSINESS_GOAL_OPTIONS,
@@ -28,7 +29,7 @@ import {
 } from "@/services/campaign-planner";
 import { runRecipeWizard, uploadAdImage } from "@/services/meta/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -41,6 +42,11 @@ import {
 import { MetaLocationAutocomplete } from "@/components/locations/MetaLocationAutocomplete";
 import type { MetaLocationOption } from "@/types/meta-assets";
 import { AssetPicker, ChoiceCard, ImagePreview } from "./survey-ui";
+import { SectionCard } from "@/components/shared/SectionCard";
+import { WizardStepper } from "@/components/campaign-wizard/WizardStepper";
+import { WizardTipsPanel } from "@/components/campaign-wizard/WizardTipsPanel";
+import { StickyActionBar } from "@/components/layout/StickyActionBar";
+import { Info } from "lucide-react";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
@@ -101,17 +107,47 @@ export function CampaignSurveyFlow() {
     pageId: answers.selectedAssets.page?.id,
   });
 
+  const accountProfile = useAdAccountProfile({
+    connectionId: activeConnectionId ?? undefined,
+    businessId: activeConnection?.metaBusinessId ?? undefined,
+    adAccountId: selectedAdAccountId ?? undefined,
+    recipeId: recipeId as CampaignRecipeId | null,
+  });
+
   useEffect(() => {
     setAnswers((a) => ({ ...a, selectedAssets: snap.selectedAssets }));
   }, [snap.selectedAssets]);
 
+  useEffect(() => {
+    if (!accountProfile.discovery) return;
+    snap.setSelectedAssets((current) => accountProfile.applyToSelectedAssets(current));
+    if (accountProfile.defaultWebsiteUrl) {
+      setAnswers((a) => {
+        if (a.creative.destinationUrl?.trim()) return a;
+        return { ...a, creative: { ...a.creative, destinationUrl: accountProfile.defaultWebsiteUrl } };
+      });
+    }
+  }, [accountProfile.discovery, accountProfile.defaultWebsiteUrl, accountProfile.applyToSelectedAssets, snap.setSelectedAssets]);
+
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
   if (!accountLoading && status && !status.connected) {
-    return <p className="text-sm text-muted-foreground">Meta baglantisi gerekli.</p>;
+    return (
+      <SectionCard title="Meta bağlantısı gerekli" description="Kampanya oluşturmak için önce Meta hesabınızı bağlayın.">
+        <Button asChild>
+          <a href="/settings">Ayarlara Git</a>
+        </Button>
+      </SectionCard>
+    );
   }
   if (!accountLoading && status?.connected && !isReady) {
-    return <p className="text-sm text-yellow-800">Reklam hesabi secin.</p>;
+    return (
+      <SectionCard title="Reklam hesabı seçin" description="Devam etmek için bir reklam hesabı seçin.">
+        <Button asChild variant="outline">
+          <a href="/settings">Ayarlara Git</a>
+        </Button>
+      </SectionCard>
+    );
   }
 
   const patch = (p: Partial<CampaignQuestionnaireAnswers>) => setAnswers((a) => ({ ...a, ...p }));
@@ -157,15 +193,19 @@ export function CampaignSurveyFlow() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Reklam Anketi</CardTitle>
-          <CardDescription>
-            {recipe?.outcomeLabel ?? "Is dilinizde bir kac soru"} · Soru {idx + 1}/{flow.length}
-          </CardDescription>
-        </CardHeader>
-      </Card>
+    <div className="space-y-6 pb-24">
+      <WizardStepper currentStep={idx + 1} totalSteps={flow.length} />
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="min-w-0 space-y-4">
+          <SectionCard
+            title="Reklam Anketi"
+            description={`${recipe?.outcomeLabel ?? "İş dilinizde birkaç soru"} · Soru ${idx + 1} / ${flow.length}`}
+          >
+            <div className="mb-4 flex gap-3 rounded-xl border border-primary/20 bg-accent/50 p-4 text-sm text-accent-foreground">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>Her adımda yanıtlarınız kampanya planını otomatik oluşturur. İstediğiniz zaman geri dönebilirsiniz.</p>
+            </div>
 
       {q?.id === "business_goal" && (
         <Card>
@@ -254,41 +294,35 @@ export function CampaignSurveyFlow() {
         <Card>
           <CardHeader><CardTitle>{q.title}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <Button size="sm" variant="outline" onClick={() => void snap.reload()} disabled={snap.loading}>Yenile</Button>
-            {snap.loading && <p className="text-sm text-muted-foreground">Varliklar yukleniyor...</p>}
-            {snap.error && <p className="text-sm text-destructive">{snap.error}</p>}
-            {recipe.requiredAssets.includes("page") && !snap.loading && (
-              snap.snapshot?.pages.length ? (
-              <AssetPicker label="Facebook Page" value={answers.selectedAssets.page?.id ?? ""}
-                options={snap.snapshot.pages.map((p) => ({ id: p.id, label: formatPageOptionLabel(p) }))}
-                onChange={(id) => {
-                  const page = snap.snapshot?.pages.find((p) => p.id === id);
-                  snap.setSelectedAssets((c) => ({
-                    ...c,
-                    page: page ? { id: page.id, name: formatPageOptionLabel(page) } : undefined,
-                  }));
-                  void snap.reloadPageBound(id, page ? formatPageOptionLabel(page) : undefined);
-                }} />
-              ) : (
-                <p className="text-sm text-destructive">
-                  {snap.snapshot?.diagnostics.pages.reason ?? "Facebook Page bulunamadi."}
-                </p>
-              )
-            )}
-            {recipe.requiredAssets.includes("pixel") && !snap.loading && (
-              (snap.snapshot?.pixels ?? []).length ? (
-              <AssetPicker label="Pixel" value={answers.selectedAssets.pixel?.id ?? ""}
-                options={snap.snapshot!.pixels.map((p) => ({ id: p.id, label: p.name }))}
-                onChange={(id) => {
-                  const p = snap.snapshot?.pixels.find((x) => x.id === id);
-                  snap.setSelectedAssets((c) => ({ ...c, pixel: p ? { id: p.id, name: p.name } : undefined }));
-                }} />
-              ) : (
-                <p className="text-sm text-destructive">
-                  {snap.snapshot?.diagnostics.pixels.reason ?? "Pixel bulunamadi."}
-                </p>
-              )
-            )}
+            <AccountProfilePanel
+              discovery={accountProfile.discovery}
+              loading={accountProfile.loading}
+              needsManualForm={accountProfile.needsManualForm}
+              pageOptions={accountProfile.pageOptions}
+              pixelOptions={accountProfile.pixelOptions}
+              websiteOptions={accountProfile.websiteOptions}
+              required={accountProfile.required}
+              selectedPageId={answers.selectedAssets.page?.id}
+              selectedPixelId={answers.selectedAssets.pixel?.id}
+              selectedWebsiteUrl={answers.creative.destinationUrl}
+              onSelectPage={(id, name) => {
+                snap.setSelectedAssets((c) => ({ ...c, page: { id, name } }));
+                void snap.reloadPageBound(id, name);
+              }}
+              onSelectPixel={(id, name) => {
+                snap.setSelectedAssets((c) => ({ ...c, pixel: { id, name } }));
+              }}
+              onSelectWebsite={(url) => {
+                patch({ creative: { ...answers.creative, destinationUrl: url } });
+              }}
+              onSaveManual={async (manual) => {
+                await accountProfile.saveManual(manual);
+                toast.success("Hesap profili kaydedildi");
+              }}
+            />
+            <Button size="sm" variant="outline" onClick={() => void accountProfile.reload()} disabled={accountProfile.loading}>
+              Profili yenile
+            </Button>
             {recipe.requiredAssets.includes("instantForm") && (
               <AssetPicker label="Meta Form" value={answers.selectedAssets.instantForm?.id ?? ""}
                 options={(snap.snapshot?.instantForms ?? []).map((f) => ({ id: f.id, label: f.name }))}
@@ -380,18 +414,32 @@ export function CampaignSurveyFlow() {
           </CardContent>
         </Card>
       )}
+          </SectionCard>
+        </div>
 
-      <div className="flex gap-2">
-        <Button variant="outline" disabled={idx === 0} onClick={() => setIdx((i) => i - 1)}>Geri</Button>
+        <div className="order-last lg:order-none">
+          <WizardTipsPanel recipeLabel={recipe?.outcomeLabel} />
+        </div>
+      </div>
+
+      <StickyActionBar className="[&>div]:max-w-none">
+        <Button variant="outline" disabled={idx === 0} onClick={() => setIdx((i) => i - 1)}>
+          Geri
+        </Button>
         {q?.id !== "review" ? (
-          <Button className="flex-1" onClick={() => setIdx((i) => Math.min(flow.length - 1, i + 1))}>Ileri</Button>
+          <Button className="flex-1" onClick={() => setIdx((i) => Math.min(flow.length - 1, i + 1))}>
+            İleri
+          </Button>
         ) : (
-          <Button className="flex-1" disabled={submitting || !validation.valid || !plan?.recipeEnabled}
-            onClick={() => void onCreate()}>
-            {submitting ? "Olusturuluyor..." : "Onayla ve Olustur"}
+          <Button
+            className="flex-1"
+            disabled={submitting || !validation.valid || !plan?.recipeEnabled}
+            onClick={() => void onCreate()}
+          >
+            {submitting ? "Oluşturuluyor..." : "Onayla ve Oluştur"}
           </Button>
         )}
-      </div>
+      </StickyActionBar>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -40,11 +41,19 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
-      <Card className="w-full max-w-md shadow-md">
-        <CardHeader className="space-y-1 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Meta Reklam Paneli</h1>
-          <p className="text-sm text-muted-foreground">Devam etmek için e-posta ve şifrenizi girin</p>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-sidebar px-4 py-12">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,hsl(var(--sidebar-active)/0.35),transparent_55%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,hsl(var(--primary)/0.2),transparent_50%)]" />
+
+      <Card className="relative w-full max-w-md border-border/50 shadow-[var(--shadow-card)]">
+        <CardHeader className="space-y-4 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+            <Sparkles className="h-6 w-6" />
+          </div>
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold tracking-tight">iyzads</h1>
+            <p className="text-sm text-muted-foreground">Meta Reklam Paneli&apos;ne giriş yapın</p>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -60,7 +69,6 @@ export default function LoginForm() {
                 placeholder="ornek@firma.com"
                 autoComplete="email"
                 required
-                className="bg-background text-foreground"
               />
             </div>
 
@@ -76,12 +84,11 @@ export default function LoginForm() {
                 placeholder="••••••••"
                 autoComplete="current-password"
                 required
-                className="bg-background text-foreground"
               />
             </div>
 
             {error && (
-              <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error}
               </p>
             )}

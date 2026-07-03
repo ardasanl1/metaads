@@ -1,8 +1,8 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { StatsGrid } from "@/components/cards/StatsGrid";
 import { DataDateRangeCaption } from "@/components/cards/DataDateRangeCaption";
+import { ErrorState } from "@/components/shared/ErrorState";
 import { useAccountInsights } from "@/hooks/use-account-insights";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import type { DateFilterState } from "@/hooks/use-date-filter";
@@ -22,24 +22,18 @@ export function DashboardStats({ dateFilter }: DashboardStatsProps) {
   const displayError = error ?? insightsError;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {displayError && (
-        <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-destructive">{displayError}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              retry();
-              void reload();
-            }}
-          >
-            Tekrar Dene
-          </Button>
-        </div>
+        <ErrorState
+          message={displayError}
+          onRetry={() => {
+            retry();
+            void reload();
+          }}
+        />
       )}
       <StatsGrid insights={insights} loading={loading || !isReady} />
-      {isReady && (
+      {isReady && !loading && (
         <DataDateRangeCaption
           filter={dateFilter.quickDateFilter}
           since={dateFilter.since}

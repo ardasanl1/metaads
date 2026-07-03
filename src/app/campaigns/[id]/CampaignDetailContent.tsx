@@ -8,7 +8,9 @@ import PanelLayout from "@/components/PanelLayout";
 import { CampaignInsightsGrid } from "@/components/campaigns/CampaignInsightsGrid";
 import { QuickDateFilterBar } from "@/components/filters/QuickDateFilterBar";
 import { DataDateRangeCaption } from "@/components/cards/DataDateRangeCaption";
-import { Badge } from "@/components/ui/badge";
+import { SectionCard } from "@/components/shared/SectionCard";
+import { ErrorState } from "@/components/shared/ErrorState";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -44,14 +46,6 @@ import { formatMetaDate } from "@/lib/status-utils";
 import { centsToCurrency, formatCurrency } from "@/utils/format";
 import { getObjectiveLabel } from "@/utils/campaign-constants";
 import { formatInsightValue, INSIGHT_COLUMNS } from "@/utils/insight-display";
-import { formatMetaStatusLabel } from "@/utils/status-labels";
-
-function statusVariant(status: string): "success" | "warning" | "muted" | "secondary" {
-  const normalized = status.toUpperCase();
-  if (normalized === "ACTIVE") return "success";
-  if (normalized.includes("PAUSED")) return "warning";
-  return "muted";
-}
 
 function dailyBudgetLabel(value?: string): string {
   const amount = centsToCurrency(value);
@@ -152,11 +146,7 @@ function CampaignDetailBody() {
         </Button>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-          {error}
-        </div>
-      )}
+      {error && <ErrorState message={error} onRetry={() => void reload()} />}
 
       {isReady && (
         <QuickDateFilterBar
@@ -176,21 +166,16 @@ function CampaignDetailBody() {
         </div>
       ) : campaign ? (
         <>
-          <div className="space-y-1">
-            <h2 className="text-xl font-semibold">{campaign.name}</h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={statusVariant(campaign.status)}>
-                {formatMetaStatusLabel(campaign.status)}
-              </Badge>
-              <Badge variant={statusVariant(campaign.effective_status)}>
-                {formatMetaStatusLabel(campaign.effective_status)}
-              </Badge>
-              <span className="text-sm text-muted-foreground">
-                {getObjectiveLabel(campaign.objective)} · Güncellenme:{" "}
-                {formatMetaDate(campaign.updated_time)}
-              </span>
-            </div>
-          </div>
+          <SectionCard
+            title={campaign.name}
+            description={`ID: ${campaign.id} · ${getObjectiveLabel(campaign.objective)} · Güncellenme: ${formatMetaDate(campaign.updated_time)}`}
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={campaign.status} />
+                <StatusBadge status={campaign.effective_status} />
+              </div>
+            }
+          />
 
           <Tabs defaultValue="overview" className="w-full">
             <TabsList>
@@ -208,7 +193,7 @@ function CampaignDetailBody() {
                 accountName={selectedAdAccountName}
               />
 
-              <Card>
+              <Card className="border-border shadow-[var(--shadow-soft)]">
                 <CardHeader>
                   <CardTitle>Kampanya Ayarları</CardTitle>
                 </CardHeader>
@@ -267,7 +252,7 @@ function CampaignDetailBody() {
                 </Button>
               </div>
 
-              <Card>
+              <Card className="border-border shadow-[var(--shadow-soft)]">
                 <CardHeader>
                   <CardTitle>Reklam Setleri</CardTitle>
                 </CardHeader>
@@ -300,9 +285,7 @@ function CampaignDetailBody() {
                             >
                               <TableCell className="font-medium">{adset.name}</TableCell>
                               <TableCell>
-                                <Badge variant={statusVariant(adset.status)}>
-                                  {formatMetaStatusLabel(adset.status)}
-                                </Badge>
+                                <StatusBadge status={adset.status} />
                               </TableCell>
                               <TableCell>{dailyBudgetLabel(adset.daily_budget)}</TableCell>
                               {INSIGHT_COLUMNS.map((column) => (
@@ -351,7 +334,7 @@ function CampaignDetailBody() {
               </Card>
 
               {editAdSetId && (
-                <Card>
+                <Card className="border-border shadow-[var(--shadow-soft)]">
                   <CardHeader>
                     <CardTitle>Reklam Seti Düzenle</CardTitle>
                   </CardHeader>
@@ -437,7 +420,7 @@ function CampaignDetailBody() {
                 </p>
               )}
 
-              <Card>
+              <Card className="border-border shadow-[var(--shadow-soft)]">
                 <CardHeader>
                   <CardTitle>Reklamlar</CardTitle>
                 </CardHeader>
@@ -489,9 +472,7 @@ function CampaignDetailBody() {
                                   </div>
                                 </TableCell>
                                 <TableCell>
-                                  <Badge variant={statusVariant(ad.status)}>
-                                    {formatMetaStatusLabel(ad.status)}
-                                  </Badge>
+                                  <StatusBadge status={ad.status} />
                                 </TableCell>
                                 <TableCell className="text-muted-foreground">
                                   {formatMetaDate(ad.updated_time)}
@@ -540,7 +521,7 @@ function CampaignDetailBody() {
               </Card>
 
               {editAdId && (
-                <Card>
+                <Card className="border-border shadow-[var(--shadow-soft)]">
                   <CardHeader>
                     <CardTitle>Reklam Düzenle</CardTitle>
                   </CardHeader>
@@ -759,7 +740,7 @@ function CampaignDetailBody() {
 
 export default function CampaignDetailContent() {
   return (
-    <PanelLayout title="Kampanya Detayı">
+    <PanelLayout title="Kampanya Detayı" subtitle="Performans metrikleri ve kampanya yönetimi" wide>
       <CampaignDetailBody />
     </PanelLayout>
   );

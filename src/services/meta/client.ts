@@ -503,6 +503,58 @@ export async function fetchPageBoundAssets(params: {
   );
 }
 
+export async function fetchAdAccountProfile(params: {
+  connectionId: string;
+  adAccountId: string;
+}): Promise<{
+  profile: {
+    page: { id: string; name: string; source?: string; sourceLabel?: string; confidence?: number } | null;
+    instagram: { id: string; username?: string; source?: string; sourceLabel?: string; confidence?: number } | null;
+    pixel: { id: string; name: string; eventType?: string; source?: string; sourceLabel?: string; confidence?: number } | null;
+    website: { url: string; domain?: string; source?: string; sourceLabel?: string; confidence?: number } | null;
+    lastDiscoveredAt?: string;
+    lastVerifiedAt?: string;
+  } | null;
+}> {
+  return apiFetch(`/api/meta/account-profile${buildQuery(params)}`);
+}
+
+export async function discoverAdAccountProfile(params: {
+  connectionId: string;
+  businessId?: string;
+  adAccountId: string;
+  recipeId?: string;
+  forceRefresh?: boolean;
+}): Promise<import("@/types/ad-account-profile").AccountProfileDiscoveryResult> {
+  const response = await fetch("/api/meta/account-profile/discover", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error ?? "Profil keşfi başarısız");
+  return data;
+}
+
+export async function saveManualAdAccountProfile(params: {
+  connectionId: string;
+  businessId?: string;
+  adAccountId: string;
+  pageIdOrUrl?: string;
+  pixelId?: string;
+  websiteUrl?: string;
+  instagramId?: string;
+}): Promise<import("@/types/ad-account-profile").AccountProfileDiscoveryResult> {
+  const response = await fetch("/api/meta/account-profile/manual", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error ?? "Profil kaydedilemedi");
+  return data;
+}
+
 export async function runRecipeWizard(payload: WebsiteSalesSubmit): Promise<WizardCreateResult> {
   const data = await apiFetch<{ result: WizardCreateResult }>("/api/meta/wizard/create", {
     method: "POST",

@@ -3,48 +3,64 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: 0 0% 98%;
+  --background: 220 20% 97%;
   --foreground: 222 47% 11%;
   --card: 0 0% 100%;
   --card-foreground: 222 47% 11%;
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
-  --primary: 221 83% 53%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96%;
+  --primary: 234 89% 58%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 14% 96%;
   --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
-  --accent: 210 40% 96%;
-  --accent-foreground: 222 47% 11%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 220 9% 46%;
+  --accent: 234 89% 96%;
+  --accent-foreground: 234 70% 40%;
   --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 221 83% 53%;
-  --radius: 0.625rem;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --ring: 234 89% 58%;
+  --radius: 0.75rem;
+  --sidebar: 222 47% 11%;
+  --sidebar-foreground: 210 40% 96%;
+  --sidebar-muted: 215 20% 65%;
+  --sidebar-border: 217 33% 17%;
+  --sidebar-active: 234 89% 58%;
+  --page: 220 20% 97%;
+  --shadow-soft: 0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px -1px rgb(15 23 42 / 0.06);
+  --shadow-card: 0 4px 6px -1px rgb(15 23 42 / 0.07), 0 2px 4px -2px rgb(15 23 42 / 0.05);
 }
 
 .dark {
-  --background: 222 47% 7%;
+  --background: 222 47% 8%;
   --foreground: 210 40% 98%;
-  --card: 222 47% 10%;
+  --card: 222 40% 12%;
   --card-foreground: 210 40% 98%;
-  --popover: 222 47% 10%;
+  --popover: 222 40% 12%;
   --popover-foreground: 210 40% 98%;
-  --primary: 217 91% 60%;
+  --primary: 234 89% 65%;
   --primary-foreground: 222 47% 11%;
   --secondary: 217 33% 17%;
   --secondary-foreground: 210 40% 98%;
   --muted: 217 33% 17%;
   --muted-foreground: 215 20% 65%;
-  --accent: 217 33% 17%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 63% 45%;
+  --accent: 234 40% 20%;
+  --accent-foreground: 234 89% 75%;
+  --destructive: 0 63% 50%;
   --destructive-foreground: 210 40% 98%;
-  --border: 217 33% 20%;
-  --input: 217 33% 20%;
-  --ring: 224 76% 48%;
+  --border: 217 33% 22%;
+  --input: 217 33% 22%;
+  --ring: 234 89% 65%;
+  --sidebar: 222 47% 7%;
+  --sidebar-foreground: 210 40% 96%;
+  --sidebar-muted: 215 16% 60%;
+  --sidebar-border: 217 33% 15%;
+  --sidebar-active: 234 89% 58%;
+  --page: 222 47% 8%;
+  --shadow-soft: 0 1px 3px 0 rgb(0 0 0 / 0.25);
+  --shadow-card: 0 4px 6px -1px rgb(0 0 0 / 0.3);
 }
 
 @theme inline {
@@ -67,11 +83,27 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-muted: hsl(var(--sidebar-muted));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-active: hsl(var(--sidebar-active));
+  --color-page: hsl(var(--page));
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
+  --shadow-soft: var(--shadow-soft);
+  --shadow-card: var(--shadow-card);
 }
 
 body {
-  @apply bg-background text-foreground antialiased;
+  @apply bg-page text-foreground antialiased;
+}
+
+.panel-card {
+  @apply rounded-xl border border-border bg-card shadow-[var(--shadow-card)];
+}
+
+.panel-section {
+  @apply rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-soft)] sm:p-6;
 }

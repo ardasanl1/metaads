@@ -5,9 +5,9 @@ import PanelLayout from "@/components/PanelLayout";
 import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
 import { AdAccountSelector } from "@/components/selectors/AdAccountSelector";
 import { FirmSelector } from "@/components/selectors/FirmSelector";
+import { SectionCard } from "@/components/shared/SectionCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { disconnectConnection } from "@/services/meta/client";
@@ -102,21 +102,16 @@ function SettingsBody() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-          <div>
-            <CardTitle>İşletme Bağlantısı</CardTitle>
-            <CardDescription className="mt-1">
-              Her işletme için ayrı erişim tokenı ekleyin. Reklam hesaplarını Meta ID ile manuel
-              bağlarsınız.
-            </CardDescription>
-          </div>
+    <div className="space-y-6">
+      <SectionCard
+        title="İşletme Bağlantısı"
+        description="Her işletme için ayrı erişim tokenı ekleyin. Reklam hesaplarını Meta ID ile manuel bağlarsınız."
+        actions={
           <Badge variant={status?.connected ? "success" : "muted"}>
             {connections.length > 0 ? `${connections.length} işletme` : "Bağlı değil"}
           </Badge>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        }
+      >
           {message && (
             <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-900/50 dark:bg-green-950/30 dark:text-green-200">
               {message}
@@ -204,19 +199,13 @@ function SettingsBody() {
               {connecting ? "Bağlanıyor..." : "İşletme Bağla"}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+      </SectionCard>
 
       {status?.connected && activeConnectionId && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Reklam Hesapları</CardTitle>
-            <CardDescription>
-              İşletme seçin ve reklam hesaplarını Meta ID ile ekleyin. Business eşleşmesi otomatik
-              yapılır.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <SectionCard
+          title="Reklam Hesapları"
+          description="İşletme seçin ve reklam hesaplarını Meta ID ile ekleyin. Business eşleşmesi otomatik yapılır."
+        >
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
               <FirmSelector
                 connections={connections}
@@ -232,8 +221,7 @@ function SettingsBody() {
               />
             </div>
             <AddAdAccountForm onAdd={addAdAccountManually} disabled={accountLoading} />
-          </CardContent>
-        </Card>
+        </SectionCard>
       )}
     </div>
   );
@@ -241,7 +229,11 @@ function SettingsBody() {
 
 export default function SettingsContent() {
   return (
-    <PanelLayout title="Ayarlar">
+    <PanelLayout
+      title="Ayarlar"
+      subtitle="Meta bağlantıları ve reklam hesaplarını yönetin"
+      showAccountBar={false}
+    >
       <SettingsBody />
     </PanelLayout>
   );
