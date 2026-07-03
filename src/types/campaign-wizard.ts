@@ -94,6 +94,51 @@ export type WebsiteSalesDraft = CampaignDraft;
 export type CampaignSubmit = Omit<CampaignDraft, "imageFile" | "goalAnswerId" | "specialAdCategoryAsked"> & {
   imageHash: string;
   audienceLocations?: import("@/types/campaign-questionnaire").SelectedMetaLocation[];
+  /** Planner'dan gelen gerçek recipe (fallback sonrası) */
+  effectiveRecipeId: CampaignRecipeId;
+  /** Fallback öncesi orijinal recipe */
+  baseRecipeId?: CampaignRecipeId;
+  /** Başarısız denemeden sonra kaldığı yerden devam */
+  resume?: WizardOrchestrationResume;
+};
+
+export type WizardOrchestrationResume = {
+  campaignId?: string;
+  adSetId?: string;
+  creativeId?: string;
+  adId?: string;
+  failedStep?: WizardCreateStep;
+};
+
+export type WizardMetaError = {
+  message: string;
+  type?: string;
+  code?: number;
+  subcode?: number;
+  userTitle?: string;
+  userMessage?: string;
+  fbtraceId?: string;
+  isTransient?: boolean;
+  step?: string;
+};
+
+export type WizardDebugStepInfo = {
+  step: "media_upload" | "campaign" | "adset" | "creative" | "ad";
+  status: "success" | "failed" | "skipped" | "not_started";
+  entityId?: string;
+  recipeId?: string;
+  sanitizedPayload?: Record<string, unknown>;
+  metaError?: WizardMetaError;
+};
+
+export type WizardCreationDebug = {
+  effectiveRecipeId: string;
+  baseRecipeId?: string;
+  campaignObjective?: string;
+  dailyBudgetUi?: number;
+  dailyBudgetSent?: number;
+  targetingSent?: unknown;
+  steps: WizardDebugStepInfo[];
 };
 
 /** @deprecated Use CampaignSubmit */
@@ -123,6 +168,9 @@ export type WizardCreateResult = {
   adSetId?: string;
   creativeId?: string;
   adId?: string;
+  effectiveRecipeId?: CampaignRecipeId;
+  metaError?: WizardMetaError;
+  debug?: WizardCreationDebug;
 };
 
 export type MetaPage = { id: string; name: string; pictureUrl?: string; source?: string };

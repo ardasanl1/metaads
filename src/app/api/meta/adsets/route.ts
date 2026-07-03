@@ -75,15 +75,15 @@ export async function POST(request: NextRequest) {
 
     const result = await createAdSet(connection.selectedAdAccountId, {
       name: body.name.trim(),
-      campaignId: body.campaignId.trim(),
-      dailyBudget: body.dailyBudget,
+      campaign_id: body.campaignId.trim(),
+      daily_budget: body.dailyBudget,
       status,
-      billingEvent: body.billingEvent,
-      optimizationGoal: body.optimizationGoal,
+      billing_event: body.billingEvent,
+      optimization_goal: body.optimizationGoal,
       targeting: body.targeting,
-      promotedObject: body.promotedObject,
-      startTime: body.startTime,
-      endTime: body.endTime,
+      promoted_object: body.promotedObject,
+      start_time: body.startTime,
+      end_time: body.endTime,
     });
 
     return NextResponse.json({ id: result.id });

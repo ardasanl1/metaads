@@ -1,42 +1,25 @@
 import { getCampaignRecipe, type CampaignRecipeId } from "@/config/campaign-recipes";
 import type { CampaignSubmit } from "@/types/campaign-wizard";
-import { buildGeoLocationsFromAudience } from "@/utils/wizard-location";
 import { recipeRequiresPixel } from "@/utils/recipe-pixel";
+import {
+  buildAdSetPayloadForRecipe,
+} from "@/services/meta/adset-payload-builders";
 
-function buildGeoFromDraft(draft: CampaignSubmit): Record<string, unknown> {
-  const audienceLocations = draft.audienceLocations ?? [];
-  if (audienceLocations.length > 0) {
-    return buildGeoLocationsFromAudience(audienceLocations);
-  }
-
-  const location = draft.selectedAssets.location;
-  if (!location?.key) return { countries: ["TR"] };
-
-  if (location.type === "city") return { cities: [{ key: location.key }] };
-  if (location.type === "region") return { regions: [{ key: location.key }] };
-  if (location.type === "zip") return { zips: [{ key: location.key }] };
-  return { countries: [location.countryCode.toUpperCase()] };
-}
-
-export function buildTargetingFromSubmit(draft: CampaignSubmit): unknown {
-  const genders =
-    draft.gender === "ALL" ? undefined : draft.gender === "MALE" ? [1] : [2];
-
-  const targeting: Record<string, unknown> = {
-    age_min: draft.ageMin,
-    age_max: draft.ageMax,
-    geo_locations: buildGeoFromDraft(draft),
-  };
-  if (genders) targeting.genders = genders;
-  return targeting;
-}
+export { buildTargetingFromSubmit, buildGeoFromDraft } from "@/services/meta/meta-targeting";
+export {
+  buildTrafficWebsiteAdSetPayload,
+  buildSalesWebsiteAdSetPayload,
+  buildAdSetPayloadForRecipe,
+} from "@/services/meta/adset-payload-builders";
 
 export function buildPromotedObject(recipeId: CampaignRecipeId, draft: CampaignSubmit): unknown {
   const recipe = getCampaignRecipe(recipeId);
   if (!recipe) throw new Error("Geçersiz recipe");
 
   const pageId = draft.selectedAssets.page?.id ?? draft.pageId;
-  const pixelId = recipeRequiresPixel(draft.recipeId!) ? draft.selectedAssets.pixel?.id ?? draft.pixelId : undefined;
+  const pixelId = recipeRequiresPixel(recipeId)
+    ? draft.selectedAssets.pixel?.id ?? draft.pixelId
+    : undefined;
   const formId = draft.selectedAssets.instantForm?.id ?? draft.instantFormId;
   const catalogId = draft.selectedAssets.catalog?.id ?? draft.catalogId;
   const appId = draft.selectedAssets.app?.id ?? draft.appId;
@@ -61,7 +44,8 @@ export function buildPromotedObject(recipeId: CampaignRecipeId, draft: CampaignS
 }
 
 export function buildCampaignPayload(draft: CampaignSubmit) {
-  const recipe = getCampaignRecipe(draft.recipeId!);
+  const recipeId = (draft.effectiveRecipeId ?? draft.recipeId)!;
+  const recipe = getCampaignRecipe(recipeId);
   if (!recipe) throw new Error("Recipe seçilmedi");
   const categories = draft.specialAdCategory === "NONE" ? [] : [draft.specialAdCategory];
   return {
@@ -74,32 +58,10 @@ export function buildCampaignPayload(draft: CampaignSubmit) {
 }
 
 export function buildAdSetPayload(draft: CampaignSubmit, campaignId: string) {
-  const recipe = getCampaignRecipe(draft.recipeId!);
-  if (!recipe) throw new Error("Recipe seçilmedi");
-
-  const startTime = draft.startDate ? `${draft.startDate}T00:00:00` : undefined;
-  const endTime = draft.endDate ? `${draft.endDate}T00:00:00` : undefined;
-
-  return {
-    name: `${draft.campaignName.trim()} - Reklam Seti`,
-    campaignId,
-    dailyBudget: draft.dailyBudget,
-    status: "PAUSED" as const,
-    billingEvent: recipe.billingEvent,
-    optimizationGoal: recipe.optimizationGoal,
-    destinationType:
-      recipe.destinationType !== "UNDEFINED" ? recipe.destinationType : undefined,
-    targeting: buildTargetingFromSubmit(draft),
-    promotedObject: buildPromotedObject(draft.recipeId!, draft),
-    startTime,
-    endTime,
-  };
+  return buildAdSetPayloadForRecipe(draft, campaignId);
 }
 
 export function buildObjectStorySpec(draft: CampaignSubmit) {
-  const recipe = getCampaignRecipe(draft.recipeId!);
-  if (!recipe) throw new Error("Recipe seçilmedi");
-
   const pageId = draft.selectedAssets.page?.id ?? draft.pageId;
   const instagramActorId =
     (draft.selectedAssets.instagram?.id ?? draft.instagramActorId?.trim()) || undefined;

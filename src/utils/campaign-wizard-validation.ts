@@ -110,12 +110,14 @@ export const validateWebsiteSalesDraft = validateCampaignDraft;
 
 export function validateCampaignSubmit(input: CampaignSubmit): Record<string, string> {
   const errors: Record<string, string> = {};
+  const recipeId = input.effectiveRecipeId ?? input.recipeId;
   if (!input.imageHash?.trim()) errors.imageHash = "Görsel yüklenmedi (image hash yok)";
-  if (!input.recipeId) errors.recipeId = "Recipe seçilmedi";
-  if (!input.websiteUrl?.trim() && recipeRequiresWebsiteUrl(input.recipeId ?? "")) {
+  if (!recipeId) errors.recipeId = "Recipe seçilmedi";
+  if (!input.effectiveRecipeId) errors.effectiveRecipeId = "effectiveRecipeId gerekli";
+  if (!input.websiteUrl?.trim() && recipeRequiresWebsiteUrl(recipeId ?? "")) {
     errors.websiteUrl = "Website URL eksik";
   }
-  if (input.websiteUrl?.trim() && recipeRequiresWebsiteUrl(input.recipeId ?? "")) {
+  if (input.websiteUrl?.trim() && recipeRequiresWebsiteUrl(recipeId ?? "")) {
     if (!isAllowedWebsiteUrl(input.websiteUrl)) {
       errors.websiteUrl = "Geçerli bir Website URL girin";
     }

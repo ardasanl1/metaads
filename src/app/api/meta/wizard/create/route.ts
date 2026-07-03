@@ -19,6 +19,14 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await runRecipeWizard(body);
+
+    if (process.env.NODE_ENV !== "production" && result.debug) {
+      console.info("[wizard/create] debug", JSON.stringify(result.debug, null, 2));
+    }
+    if (process.env.NODE_ENV !== "production" && result.metaError) {
+      console.error("[wizard/create] metaError", result.metaError);
+    }
+
     return NextResponse.json({ result });
   } catch (error) {
     return handleApiError(error);

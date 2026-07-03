@@ -5,6 +5,7 @@ import {
   pickPreferredBusinessMatch,
 } from "./meta-business-discovery";
 import { extractMetaErrorMessage } from "./meta-errors";
+import { formatMetaErrorForUser, parseMetaErrorPayload, type MetaErrorDetails } from "./meta-error-details";
 import {
   normalizeAdAccountId,
   normalizeAdAccountList,
@@ -25,11 +26,13 @@ export { normalizeAdAccountId };
 
 export class MetaApiError extends Error {
   status: number;
+  metaError?: MetaErrorDetails;
 
-  constructor(message: string, status = 502) {
+  constructor(message: string, status = 502, metaError?: MetaErrorDetails) {
     super(message);
     this.name = "MetaApiError";
     this.status = status;
+    this.metaError = metaError;
   }
 }
 
@@ -45,12 +48,36 @@ export { graphBaseUrl };
 
 async function parseMetaResponse<T>(response: Response): Promise<T> {
   const data = (await response.json()) as T & {
-    error?: { message?: string; type?: string; code?: number };
+    error?: {
+      message?: string;
+      type?: string;
+      code?: number;
+      error_subcode?: number;
+      error_user_title?: string;
+      error_user_msg?: string;
+      fbtrace_id?: string;
+      is_transient?: boolean;
+    };
   };
 
   if (!response.ok || data.error) {
-    const message = extractMetaErrorMessage(data, "Meta API isteği başarısız oldu");
-    throw new MetaApiError(message, response.ok ? 502 : response.status);
+    const metaError = parseMetaErrorPayload(data);
+    const message = metaError
+      ? formatMetaErrorForUser(metaError)
+      : extractMetaErrorMessage(data, "Meta API isteği başarısız oldu");
+    if (metaError) {
+      console.error("[Meta API]", {
+        message: metaError.message,
+        type: metaError.type,
+        code: metaError.code,
+        subcode: metaError.subcode,
+        userTitle: metaError.userTitle,
+        userMessage: metaError.userMessage,
+        fbtraceId: metaError.fbtraceId,
+        isTransient: metaError.isTransient,
+      });
+    }
+    throw new MetaApiError(message, response.ok ? 502 : response.status, metaError ?? undefined);
   }
 
   return data;
@@ -371,7 +398,7 @@ export async function getCampaign(
   query?: InsightsQuery,
 ): Promise<Campaign | null> {
   const baseFields =
-    "id,name,objective,status,effective_status,created_time,updated_time,daily_budget,lifetime_budget";
+    "id,name,objective,status,effective_status,special_ad_categories,created_time,updated_time,daily_budget,lifetime_budget";
   const insightsParam = buildInsightsParam(query);
   const fields = insightsParam ? `${baseFields},${insightsParam}` : baseFields;
 
@@ -442,19 +469,7 @@ export async function getAdSets(campaignId: string, query?: InsightsQuery): Prom
   return fetchPaged<AdSet>(`${campaignId}/adsets?fields=${fields}&limit=100`);
 }
 
-export type CreateAdSetInput = {
-  name: string;
-  campaignId: string;
-  dailyBudget: number;
-  status?: "ACTIVE" | "PAUSED";
-  billingEvent: string;
-  optimizationGoal: string;
-  targeting: unknown;
-  promotedObject?: unknown;
-  destinationType?: string;
-  startTime?: string;
-  endTime?: string;
-};
+export type CreateAdSetInput = Record<string, unknown>;
 
 export async function createAdSet(
   adAccountId: string,
@@ -465,27 +480,28 @@ export async function createAdSet(
     throw new MetaApiError("Reklam hesabı ID gerekli", 400);
   }
 
-  const body: Record<string, string | number> = {
-    name: input.name.trim(),
-    campaign_id: input.campaignId,
-    daily_budget: Math.round(input.dailyBudget * 100),
-    status: input.status ?? "PAUSED",
-    billing_event: input.billingEvent,
-    optimization_goal: input.optimizationGoal,
-    targeting: JSON.stringify(input.targeting ?? {}),
-  };
+  const body: Record<string, string | number> = {};
 
-  if (input.promotedObject) {
-    body.promoted_object = JSON.stringify(input.promotedObject);
-  }
-  if (input.destinationType && input.destinationType !== "UNDEFINED") {
-    body.destination_type = input.destinationType;
-  }
-  if (input.startTime) {
-    body.start_time = input.startTime;
-  }
-  if (input.endTime) {
-    body.end_time = input.endTime;
+  for (const [key, value] of Object.entries(input)) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === "string" && value.trim() === "") continue;
+
+    if (key === "targeting" || key === "promoted_object" || key === "attribution_spec") {
+      const serialized =
+        typeof value === "string" ? value : JSON.stringify(value);
+      if (serialized && serialized !== "{}") {
+        body[key] = serialized;
+      }
+      continue;
+    }
+
+    if (typeof value === "number") {
+      body[key] = value;
+    } else if (typeof value === "string") {
+      body[key] = value;
+    } else {
+      body[key] = JSON.stringify(value);
+    }
   }
 
   return metaRequest<{ id: string }>(`${accountPath}/adsets`, { method: "POST", body });

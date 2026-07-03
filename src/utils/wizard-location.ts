@@ -63,8 +63,13 @@ export function buildGeoLocationsFromAudience(
   if (zips.length > 0) geo.zips = zips;
 
   if (Object.keys(geo).length === 0) {
-    return { countries: ["TR"] };
+    return { countries: ["TR"], location_types: ["home", "recent"] };
   }
+
+  if (geo.cities || geo.regions || geo.zips) {
+    geo.location_types = ["home", "recent"];
+  }
+
   return geo;
 }
 

@@ -322,6 +322,8 @@ export function questionnaireToCampaignDraft(
 
   return {
     recipeId: plan.effectiveRecipeId,
+    effectiveRecipeId: plan.effectiveRecipeId,
+    baseRecipeId: plan.baseRecipeId,
     campaignName: plan.campaign.name,
     dailyBudget: answers.dailyBudget,
     startDate: answers.startDate,
