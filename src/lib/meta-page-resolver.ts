@@ -1,6 +1,6 @@
 import "server-only";
 
-import { ensureMetaBusinessId } from "@/lib/meta";
+import { getAdAccountProfile } from "@/lib/ad-account-profile-db";
 import { graphBaseUrl, metaRequest } from "@/lib/meta";
 import {
   classifyMetaError,
@@ -12,7 +12,8 @@ import { normalizeAdAccountId } from "@/utils/ad-account";
 import type { MetaPageOption, MetaPageSource } from "@/types/meta-assets";
 
 const PAGE_FETCH_LIMIT = 500;
-const USER_ACCOUNT_AD_TASKS = new Set(["ADVERTISE", "MANAGE", "CREATE_CONTENT"]);
+const ME_ACCOUNTS_FIELDS = "id,name,tasks,instagram_business_account,picture";
+const DIRECT_PAGE_FIELDS = "id,name,instagram_business_account,picture";
 
 export type PageDiscoveryError = {
   source: string;
@@ -33,10 +34,43 @@ export type PageDiscoveryStats = {
   mergedPageCount: number;
 };
 
+export type PageResolverStatusCode =
+  | "me_accounts_success_empty"
+  | "me_accounts_permission_error"
+  | "me_accounts_token_error"
+  | "me_accounts_other_error"
+  | "me_accounts_success"
+  | "wrong_token_type"
+  | "token_invalid"
+  | "profile_page_verified"
+  | "profile_page_verification_failed"
+  | "promote_pages_fallback_empty"
+  | "promote_pages_fallback_success"
+  | "connection_token_subject_resolved";
+
 export type PageResolverDiagnostic = {
+  connectionId: string;
+  tokenSubject?: { id: string; name?: string };
   adAccount: {
     normalizedId: string;
     accessible: boolean;
+  };
+  meAccounts: {
+    requestSucceeded: boolean;
+    resultCount: number;
+    empty: boolean;
+    errorMessage?: string;
+  };
+  promotePages: {
+    requestSucceeded: boolean;
+    resultCount: number;
+    empty: boolean;
+    errorMessage?: string;
+  };
+  profilePage: {
+    savedPageId?: string;
+    directLookupSucceeded: boolean;
+    directLookupMessage?: string;
   };
   pageDiscovery: PageDiscoveryStats;
   pages: Array<{
@@ -45,9 +79,9 @@ export type PageResolverDiagnostic = {
     sources: MetaPageSource[];
     tasks?: string[];
     usableForAds: boolean;
-    excludeReason?: string;
   }>;
   errors: PageDiscoveryError[];
+  status: PageResolverStatusCode[];
   tokenType?: string;
   missingPermissions: string[];
   reason?: string;
@@ -84,7 +118,7 @@ async function fetchPagedWithToken<T>(
   token: string,
   connectionId: string,
   max = PAGE_FETCH_LIMIT,
-): Promise<{ items: T[]; error?: PageDiscoveryError }> {
+): Promise<{ items: T[]; error?: PageDiscoveryError; succeeded: boolean }> {
   const baseUrl = graphBaseUrl();
   let nextPath: string | null = initialPath;
   const results: T[] = [];
@@ -105,6 +139,7 @@ async function fetchPagedWithToken<T>(
       const classified = classifyMetaError(error);
       return {
         items: results,
+        succeeded: false,
         error: {
           source: initialPath.split("?")[0],
           code: classified.code,
@@ -115,7 +150,7 @@ async function fetchPagedWithToken<T>(
     }
   }
 
-  return { items: results.slice(0, max) };
+  return { items: results.slice(0, max), succeeded: true };
 }
 
 function pictureUrlFromRaw(page: RawPage): string | undefined {
@@ -148,21 +183,7 @@ function mergeCandidate(existing: PageCandidate | undefined, incoming: PageCandi
   };
 }
 
-function computeUsableForAds(candidate: Pick<PageCandidate, "sources" | "tasks">): boolean {
-  if (candidate.sources.includes("ad_account_promote_pages")) return true;
-  if (candidate.sources.includes("business_owned") || candidate.sources.includes("business_client")) {
-    return true;
-  }
-  if (candidate.sources.includes("user_accounts")) {
-    const tasks = candidate.tasks;
-    if (!tasks || tasks.length === 0) return true;
-    return tasks.some((task) => USER_ACCOUNT_AD_TASKS.has(task));
-  }
-  return true;
-}
-
 function toMetaPageOption(candidate: PageCandidate): MetaPageOption {
-  const usableForAds = computeUsableForAds(candidate);
   const primarySource = candidate.sources[0];
   return {
     id: candidate.id,
@@ -171,104 +192,110 @@ function toMetaPageOption(candidate: PageCandidate): MetaPageOption {
     instagramBusinessAccountId: candidate.instagramBusinessAccountId,
     sources: candidate.sources,
     tasks: candidate.tasks,
-    usableForAds,
-    available: usableForAds,
+    usableForAds: true,
+    available: true,
     source: primarySource === "ad_account_promote_pages" ? "ad_account" : primarySource,
   };
 }
 
-async function fetchPromotePagesFromAdAccount(
+function isPermissionError(error: PageDiscoveryError): boolean {
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("permission") ||
+    error.code === 10 ||
+    error.code === 200 ||
+    error.type === "OAuthException"
+  );
+}
+
+function isTokenError(error: PageDiscoveryError): boolean {
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("invalid oauth") ||
+    msg.includes("expired") ||
+    msg.includes("session has") ||
+    error.code === 190 ||
+    error.code === 102
+  );
+}
+
+async function fetchPromotePagesFallback(
   accountPath: string,
   token: string,
   connectionId: string,
-): Promise<{ pages: RawPage[]; error?: PageDiscoveryError }> {
-  const nestedFields = "id,account_id,name,promote_pages{id,name,picture,instagram_business_account{id}}";
+): Promise<{ pages: RawPage[]; error?: PageDiscoveryError; succeeded: boolean }> {
   try {
     const account = await metaRequest<{
-      id?: string;
       promote_pages?: { data?: RawPage[] };
-    }>(`${accountPath}?fields=${nestedFields}`, { token, connectionId });
-
-    if (account.promote_pages?.data?.length) {
-      return { pages: account.promote_pages.data };
-    }
-    if (account.promote_pages?.data) {
-      return { pages: [] };
-    }
+    }>(`${accountPath}?fields=promote_pages{id,name,picture,instagram_business_account{id}}`, {
+      token,
+      connectionId,
+    });
+    return {
+      pages: account.promote_pages?.data ?? [],
+      succeeded: true,
+    };
   } catch (error) {
-    const nestedError = classifyMetaError(error);
+    const classified = classifyMetaError(error);
     const fallback = await fetchPagedWithToken<RawPage>(
       `${accountPath}/promote_pages?fields=id,name,picture,instagram_business_account{id}&limit=100`,
       token,
       connectionId,
     );
-    if (!fallback.error) {
-      return { pages: fallback.items };
+    if (fallback.succeeded) {
+      return { pages: fallback.items, succeeded: true };
     }
-    try {
-      const promoteOnly = await metaRequest<{ promote_pages?: { data?: Array<{ id: string }> } }>(
-        `${accountPath}?fields=promote_pages`,
-        { token, connectionId },
-      );
-      const ids = promoteOnly.promote_pages?.data ?? [];
-      if (ids.length === 0) {
-        return { pages: [] };
-      }
-      const enriched: RawPage[] = [];
-      for (const row of ids) {
-        if (!row.id) continue;
-        try {
-          const page = await metaRequest<RawPage>(
-            `${row.id}?fields=id,name,picture,instagram_business_account{id}`,
-            { token, connectionId },
-          );
-          enriched.push(page);
-        } catch {
-          enriched.push({ id: row.id, name: row.id });
-        }
-      }
-      return { pages: enriched };
-    } catch {
-      return {
-        pages: [],
-        error: {
-          source: "ad_account_promote_pages",
-          code: nestedError.code,
-          type: nestedError.type,
-          message: nestedError.message,
-        },
-      };
-    }
+    return {
+      pages: fallback.items,
+      succeeded: false,
+      error: fallback.error ?? {
+        source: "ad_account_promote_pages",
+        code: classified.code,
+        type: classified.type,
+        message: classified.message,
+      },
+    };
   }
-
-  const edge = await fetchPagedWithToken<RawPage>(
-    `${accountPath}/promote_pages?fields=id,name,picture,instagram_business_account{id}&limit=100`,
-    token,
-    connectionId,
-  );
-  if (edge.error) {
-    return { pages: edge.items, error: edge.error };
-  }
-  return { pages: edge.items };
 }
 
-async function validatePageAccess(
-  pageId: string,
-  token: string,
-  connectionId: string,
-): Promise<{ valid: boolean; page?: RawPage; error?: PageDiscoveryError }> {
+export async function verifyFacebookPageById(input: {
+  connectionId: string;
+  pageId: string;
+}): Promise<{
+  valid: boolean;
+  pageId?: string;
+  pageName?: string;
+  instagramBusinessAccountId?: string;
+  pictureUrl?: string;
+  error?: PageDiscoveryError;
+}> {
+  const ctx = await requireMetaConnectionContext({ connectionId: input.connectionId });
+  const pageId = input.pageId.trim().replace(/\D/g, "");
+  if (!pageId) {
+    return {
+      valid: false,
+      error: { source: "page_direct_lookup", message: "Gecersiz Page ID" },
+    };
+  }
+
   try {
-    const page = await metaRequest<RawPage>(`${pageId}?fields=id,name,picture`, {
-      token,
-      connectionId,
-    });
-    return { valid: true, page };
+    const page = await metaRequest<RawPage & { access_token?: string }>(
+      `${pageId}?fields=${DIRECT_PAGE_FIELDS},access_token`,
+      { token: ctx.accessToken, connectionId: ctx.connectionId },
+    );
+    return {
+      valid: true,
+      pageId: page.id,
+      pageName: page.name?.trim() || page.id,
+      instagramBusinessAccountId: page.instagram_business_account?.id,
+      pictureUrl: pictureUrlFromRaw(page),
+    };
   } catch (error) {
     const classified = classifyMetaError(error);
     return {
       valid: false,
       error: {
-        source: `page_validation:${pageId}`,
+        source: `page_direct_lookup:${pageId}`,
         code: classified.code,
         type: classified.type,
         message: classified.message,
@@ -278,72 +305,53 @@ async function validatePageAccess(
 }
 
 function buildEmptyPagesReason(input: {
-  stats: PageDiscoveryStats;
-  errors: PageDiscoveryError[];
-  validatedCount: number;
-  businessId?: string;
+  status: PageResolverStatusCode[];
+  meAccountsEmpty: boolean;
+  meAccountsError?: PageDiscoveryError;
+  profileVerified: boolean;
+  promotePagesEmpty: boolean;
+  mergedCount: number;
 }): string {
-  const { stats, errors, validatedCount } = input;
-
-  const permissionError = errors.find(
-    (e) =>
-      e.message.toLowerCase().includes("permission") ||
-      e.code === 10 ||
-      e.code === 200,
-  );
-  if (permissionError) {
-    return `Meta isteği permission hatası verdi: ${permissionError.message}`;
+  if (input.status.includes("token_invalid")) {
+    return "Token gecersiz veya suresi dolmus";
   }
-
-  if (stats.mergedPageCount > 0 && validatedCount === 0) {
-    return "Page bulundu ancak temel Page sorgusu başarısız oldu";
+  if (input.status.includes("me_accounts_permission_error")) {
+    return "Meta /me/accounts istegi permission hatasi verdi";
   }
-
-  if (stats.promotePagesRequestSucceeded && stats.promotePagesCount === 0) {
-    if (stats.userAccountsCount === 0 && stats.businessOwnedCount === 0 && stats.businessClientCount === 0) {
-      return "Reklam hesabının promote_pages alanı boş döndü; diğer kaynaklarda da Page yok";
-    }
-    return "Reklam hesabının promote_pages alanı boş döndü";
+  if (input.status.includes("profile_page_verified") && input.mergedCount > 0) {
+    return "Kayitli Page ID dogrudan dogrulandi";
   }
-
-  if (stats.userAccountsRequestSucceeded && stats.userAccountsCount === 0) {
-    if (stats.businessOwnedCount > 0 || stats.businessClientCount > 0) {
-      return "Business altında Page bulundu ancak birleştirme sonrası kullanılabilir Page kalmadı";
-    }
-    if (stats.promotePagesCount === 0) {
-      return "/me/accounts Page döndürmedi";
-    }
+  if (input.status.includes("profile_page_verification_failed") && input.mergedCount === 0) {
+    return "Kayitli Page ID dogrulanamadi";
   }
-
-  if (
-    stats.promotePagesCount === 0 &&
-    stats.userAccountsCount === 0 &&
-    stats.businessOwnedCount === 0 &&
-    stats.businessClientCount === 0
-  ) {
-    return "Tüm kaynaklar kontrol edildi; kullanılabilir Page bulunamadı";
+  if (input.status.includes("me_accounts_success_empty") && input.mergedCount === 0) {
+    return "Meta /me/accounts istegi basarili ancak data bos dondu";
   }
-
-  return "Facebook Page bulunamadı";
+  if (input.mergedCount === 0) {
+    return "Kullanilabilir Facebook Page bulunamadi";
+  }
+  return "Facebook Page bulundu";
 }
 
 export async function resolveFacebookPages(input: {
   connectionId: string;
   businessId?: string;
   adAccountId?: string;
+  profilePageId?: string;
 }): Promise<PageResolverResult> {
   const ctx = await requireMetaConnectionContext(input);
   const tokenDiagnostics = await getTokenCapabilityDiagnostics(ctx);
 
-  const businessId =
-    input.businessId?.trim() ||
-    ctx.metaBusinessId ||
-    (await ensureMetaBusinessId(ctx.connectionId, input.adAccountId)) ||
-    undefined;
-
   const accountPath = input.adAccountId ? normalizeAdAccountId(input.adAccountId) : "";
   const errors: PageDiscoveryError[] = [];
+  const status: PageResolverStatusCode[] = [];
   const byId = new Map<string, PageCandidate>();
+
+  let savedProfilePageId = input.profilePageId?.trim();
+  if (!savedProfilePageId && input.adAccountId) {
+    const profile = await getAdAccountProfile(ctx.connectionId, input.adAccountId);
+    savedProfilePageId = profile?.defaultPageId?.trim();
+  }
 
   const stats: PageDiscoveryStats = {
     promotePagesRequestSucceeded: false,
@@ -357,7 +365,126 @@ export async function resolveFacebookPages(input: {
     mergedPageCount: 0,
   };
 
+  let tokenSubject: { id: string; name?: string } | undefined;
+  try {
+    const me = await metaRequest<{ id: string; name?: string }>("me?fields=id,name", {
+      token: ctx.accessToken,
+      connectionId: ctx.connectionId,
+    });
+    tokenSubject = { id: me.id, name: me.name };
+    status.push("connection_token_subject_resolved");
+    if (ctx.metaUserId && ctx.metaUserId !== me.id) {
+      errors.push({
+        source: "connection_token_subject",
+        message: "Connection kaydindaki metaUserId ile token subject ID eslesmiyor",
+      });
+    }
+  } catch (error) {
+    const classified = classifyMetaError(error);
+    errors.push({
+      source: "me",
+      code: classified.code,
+      type: classified.type,
+      message: classified.message,
+    });
+    status.push("token_invalid");
+  }
+
+  const meAccountsMeta = {
+    requestSucceeded: false,
+    resultCount: 0,
+    empty: true,
+    errorMessage: undefined as string | undefined,
+  };
+
+  if (!status.includes("token_invalid")) {
+    const userAccounts = await fetchPagedWithToken<RawPage>(
+      `me/accounts?fields=${ME_ACCOUNTS_FIELDS}&limit=100`,
+      ctx.accessToken,
+      ctx.connectionId,
+    );
+
+    if (userAccounts.error) {
+      errors.push({ ...userAccounts.error, source: "user_accounts" });
+      meAccountsMeta.errorMessage = userAccounts.error.message;
+      stats.userAccountsRequestSucceeded = false;
+
+      if (isPermissionError(userAccounts.error)) {
+        status.push("me_accounts_permission_error");
+      } else if (isTokenError(userAccounts.error)) {
+        status.push("me_accounts_token_error");
+        status.push("token_invalid");
+      } else {
+        status.push("me_accounts_other_error");
+      }
+    } else {
+      stats.userAccountsRequestSucceeded = true;
+      meAccountsMeta.requestSucceeded = true;
+      stats.userAccountsCount = userAccounts.items.length;
+      meAccountsMeta.resultCount = userAccounts.items.length;
+
+      if (userAccounts.items.length === 0) {
+        status.push("me_accounts_success_empty");
+        meAccountsMeta.empty = true;
+      } else {
+        status.push("me_accounts_success");
+        meAccountsMeta.empty = false;
+      }
+
+      for (const page of userAccounts.items) {
+        const mapped = mapRawPage(page, "user_accounts");
+        if (!mapped) continue;
+        byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
+      }
+    }
+  }
+
+  const profilePageMeta = {
+    savedPageId: savedProfilePageId,
+    directLookupSucceeded: false,
+    directLookupMessage: undefined as string | undefined,
+  };
+
+  if (savedProfilePageId) {
+    const verified = await verifyFacebookPageById({
+      connectionId: ctx.connectionId,
+      pageId: savedProfilePageId,
+    });
+    if (verified.valid && verified.pageId) {
+      profilePageMeta.directLookupSucceeded = true;
+      status.push("profile_page_verified");
+      const mapped = mapRawPage(
+        {
+          id: verified.pageId,
+          name: verified.pageName,
+          instagram_business_account: verified.instagramBusinessAccountId
+            ? { id: verified.instagramBusinessAccountId }
+            : undefined,
+          picture: verified.pictureUrl ? { url: verified.pictureUrl } : undefined,
+        },
+        "user_accounts",
+      );
+      if (mapped) {
+        byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
+      }
+    } else {
+      profilePageMeta.directLookupSucceeded = false;
+      profilePageMeta.directLookupMessage = verified.error?.message ?? "Page ID dogrulanamadi";
+      status.push("profile_page_verification_failed");
+      if (verified.error) errors.push(verified.error);
+    }
+  }
+
+  const promotePagesMeta = {
+    requestSucceeded: false,
+    resultCount: 0,
+    empty: true,
+    errorMessage: undefined as string | undefined,
+  };
+
   let adAccountAccessible = false;
+  const shouldTryPromoteFallback = byId.size === 0 && Boolean(accountPath);
+
   if (accountPath) {
     try {
       await metaRequest<{ id: string }>(`${accountPath}?fields=id,account_id,name`, {
@@ -375,90 +502,39 @@ export async function resolveFacebookPages(input: {
       });
     }
 
-    if (adAccountAccessible) {
-      const promote = await fetchPromotePagesFromAdAccount(
-        accountPath,
-        ctx.accessToken,
-        ctx.connectionId,
-      );
+    if (adAccountAccessible && shouldTryPromoteFallback) {
+      const promote = await fetchPromotePagesFallback(accountPath, ctx.accessToken, ctx.connectionId);
       if (promote.error) {
         errors.push(promote.error);
+        promotePagesMeta.errorMessage = promote.error.message;
         stats.promotePagesRequestSucceeded = false;
+        promotePagesMeta.requestSucceeded = false;
       } else {
         stats.promotePagesRequestSucceeded = true;
+        promotePagesMeta.requestSucceeded = true;
       }
       stats.promotePagesCount = promote.pages.length;
-      for (const page of promote.pages) {
-        const mapped = mapRawPage(page, "ad_account_promote_pages");
-        if (!mapped) continue;
-        byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
+      promotePagesMeta.resultCount = promote.pages.length;
+      promotePagesMeta.empty = promote.pages.length === 0;
+
+      if (promote.pages.length > 0) {
+        status.push("promote_pages_fallback_success");
+        for (const page of promote.pages) {
+          const mapped = mapRawPage(page, "ad_account_promote_pages");
+          if (!mapped) continue;
+          byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
+        }
+      } else if (promote.succeeded) {
+        status.push("promote_pages_fallback_empty");
       }
     }
   }
 
-  const pageFields = "id,name,tasks,picture,instagram_business_account{id}";
-  const businessPageFields = "id,name,picture,instagram_business_account{id}";
-
-  const isUserToken =
-    tokenDiagnostics.tokenType === "user" ||
-    tokenDiagnostics.grantedPermissions.includes("pages_show_list");
-
-  if (isUserToken) {
-    const userAccounts = await fetchPagedWithToken<RawPage>(
-      `me/accounts?fields=${pageFields}&limit=100`,
-      ctx.accessToken,
-      ctx.connectionId,
-    );
-    if (userAccounts.error) {
-      errors.push({ ...userAccounts.error, source: "user_accounts" });
-      stats.userAccountsRequestSucceeded = false;
-    } else {
-      stats.userAccountsRequestSucceeded = true;
-    }
-    stats.userAccountsCount = userAccounts.items.length;
-    for (const page of userAccounts.items) {
-      const mapped = mapRawPage(page, "user_accounts");
-      if (!mapped) continue;
-      byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
-    }
-  }
-
-  if (businessId) {
-    const owned = await fetchPagedWithToken<RawPage>(
-      `${businessId}/owned_pages?fields=${businessPageFields}&limit=100`,
-      ctx.accessToken,
-      ctx.connectionId,
-    );
-    if (owned.error) {
-      errors.push({ ...owned.error, source: "business_owned" });
-      stats.businessOwnedRequestSucceeded = false;
-    } else {
-      stats.businessOwnedRequestSucceeded = true;
-    }
-    stats.businessOwnedCount = owned.items.length;
-    for (const page of owned.items) {
-      const mapped = mapRawPage(page, "business_owned");
-      if (!mapped) continue;
-      byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
-    }
-
-    const client = await fetchPagedWithToken<RawPage>(
-      `${businessId}/client_pages?fields=${businessPageFields}&limit=100`,
-      ctx.accessToken,
-      ctx.connectionId,
-    );
-    if (client.error) {
-      errors.push({ ...client.error, source: "business_client" });
-      stats.businessClientRequestSucceeded = false;
-    } else {
-      stats.businessClientRequestSucceeded = true;
-    }
-    stats.businessClientCount = client.items.length;
-    for (const page of client.items) {
-      const mapped = mapRawPage(page, "business_client");
-      if (!mapped) continue;
-      byId.set(mapped.id, mergeCandidate(byId.get(mapped.id), mapped));
-    }
+  if (
+    tokenDiagnostics.tokenType === "system_user" &&
+    !tokenDiagnostics.grantedPermissions.includes("pages_show_list")
+  ) {
+    status.push("wrong_token_type");
   }
 
   stats.mergedPageCount = byId.size;
@@ -467,81 +543,58 @@ export async function resolveFacebookPages(input: {
   const validatedPages: MetaPageOption[] = [];
 
   for (const candidate of byId.values()) {
-    const usableForAds = computeUsableForAds(candidate);
-    const validation = await validatePageAccess(candidate.id, ctx.accessToken, ctx.connectionId);
-
-    if (!validation.valid) {
-      if (validation.error) errors.push(validation.error);
-      diagnosticPages.push({
-        id: candidate.id,
-        name: candidate.name,
-        sources: candidate.sources,
-        tasks: candidate.tasks,
-        usableForAds,
-        excludeReason: validation.error?.message ?? "Page doğrulama başarısız",
-      });
-      continue;
-    }
-
-    const enriched: PageCandidate = {
-      ...candidate,
-      name: validation.page?.name?.trim() || candidate.name,
-      pictureUrl:
-        (validation.page ? pictureUrlFromRaw(validation.page) : undefined) ?? candidate.pictureUrl,
-    };
-
-    const option = toMetaPageOption(enriched);
+    const option = toMetaPageOption(candidate);
     diagnosticPages.push({
       id: option.id,
       name: option.name,
       sources: option.sources,
       tasks: option.tasks,
-      usableForAds: option.usableForAds,
+      usableForAds: true,
     });
-
-    if (option.usableForAds) {
-      validatedPages.push(option);
-    } else {
-      diagnosticPages[diagnosticPages.length - 1].excludeReason =
-        "user_accounts tasks reklam yetkisi içermiyor";
-    }
+    validatedPages.push(option);
   }
 
-  let reason: string | undefined;
-  if (validatedPages.length === 0) {
-    reason = buildEmptyPagesReason({
-      stats,
-      errors,
-      validatedCount: diagnosticPages.filter((p) => !p.excludeReason).length,
-      businessId,
-    });
-  } else if (stats.promotePagesCount > 0) {
-    reason = "Page bulundu ve reklam hesabı tarafından kullanılabilir";
-  } else if (stats.businessOwnedCount > 0 || stats.businessClientCount > 0) {
-    reason = "Business altında Page bulundu";
-  }
+  const reason =
+    validatedPages.length === 0
+      ? buildEmptyPagesReason({
+          status,
+          meAccountsEmpty: meAccountsMeta.empty,
+          meAccountsError: errors.find((e) => e.source === "user_accounts"),
+          profileVerified: profilePageMeta.directLookupSucceeded,
+          promotePagesEmpty: promotePagesMeta.empty,
+          mergedCount: byId.size,
+        })
+      : validatedPages.length === 1
+        ? "Tek Page bulundu; otomatik secilebilir"
+        : `${validatedPages.length} Page bulundu`;
 
-  const success =
-    stats.promotePagesRequestSucceeded ||
+  const requestSucceeded =
     stats.userAccountsRequestSucceeded ||
-    stats.businessOwnedRequestSucceeded ||
-    stats.businessClientRequestSucceeded;
+    profilePageMeta.directLookupSucceeded ||
+    stats.promotePagesRequestSucceeded ||
+    Boolean(tokenSubject);
 
   const diagnostic: PageResolverDiagnostic = {
+    connectionId: ctx.connectionId,
+    tokenSubject,
     adAccount: {
       normalizedId: accountPath,
       accessible: adAccountAccessible,
     },
+    meAccounts: meAccountsMeta,
+    promotePages: promotePagesMeta,
+    profilePage: profilePageMeta,
     pageDiscovery: stats,
     pages: diagnosticPages,
     errors,
+    status,
     tokenType: tokenDiagnostics.tokenType,
     missingPermissions: tokenDiagnostics.missingPermissions,
     reason,
   };
 
   return {
-    success,
+    success: requestSucceeded,
     pages: validatedPages.sort((a, b) => a.name.localeCompare(b.name, "tr")),
     diagnostic,
     tokenDiagnostics,

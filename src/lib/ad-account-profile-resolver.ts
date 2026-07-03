@@ -12,11 +12,10 @@ import {
   sortPageCandidates,
   sortPixelCandidates,
   sortWebsiteCandidates,
-  resolvePageIdFromInput,
   validatePageCandidate,
   validatePixelCandidate,
 } from "@/lib/meta-historical-discovery";
-import { resolveFacebookPages } from "@/lib/meta-page-resolver";
+import { resolveFacebookPages, verifyFacebookPageById } from "@/lib/meta-page-resolver";
 import { resolveAdAccountPixels } from "@/lib/meta-pixel-resolver";
 import type {
   AccountProfileDiscoveryResult,
@@ -177,6 +176,7 @@ export async function discoverAdAccountProfile(input: {
       connectionId: ctx.connectionId,
       businessId: input.businessId ?? ctx.metaBusinessId,
       adAccountId: input.adAccountId,
+      profilePageId: existing?.defaultPageId,
     });
     directPageCount = directPages.pages.length;
     for (const page of directPages.pages) {
@@ -276,6 +276,26 @@ export async function discoverAdAccountProfile(input: {
 
   const validatedPages: ProfilePageCandidate[] = [];
   for (const candidate of sortPageCandidates(Array.from(pageMap.values()))) {
+    const isTrustedDirect =
+      candidate.confidence >= 100 &&
+      (candidate.sources.includes("direct_user_accounts") ||
+        candidate.sources.includes("manual_verified"));
+
+    if (isTrustedDirect) {
+      validatedPages.push(candidate);
+      if (candidate.instagramBusinessAccountId && needsInstagram) {
+        igMap.set(candidate.instagramBusinessAccountId, {
+          id: candidate.instagramBusinessAccountId,
+          pageId: candidate.id,
+          sources: ["page_instagram_business_account"],
+          confidence: candidate.confidence,
+          usageCount: candidate.usageCount,
+          lastUsedAt: candidate.lastUsedAt,
+        });
+      }
+      continue;
+    }
+
     const validation = await validatePageCandidate(candidate.id, ctx.accessToken, ctx.connectionId);
     if (!validation.valid) continue;
     validatedPages.push({
@@ -393,16 +413,20 @@ export async function saveManualAdAccountProfile(
   };
 
   if (input.pageIdOrUrl?.trim()) {
-    const pageId = /^\d+$/.test(input.pageIdOrUrl.trim())
-      ? input.pageIdOrUrl.trim()
-      : resolvePageIdFromInput(input.pageIdOrUrl);
-    if (!pageId) throw new Error("Geçersiz Facebook Page ID veya URL");
-    const validation = await validatePageCandidate(pageId, ctx.accessToken, ctx.connectionId);
-    if (!validation.valid) throw new Error("Facebook Page doğrulanamadı");
-    updates.defaultPageId = pageId;
-    updates.defaultPageName = validation.name;
-    updates.pageSource = "manual";
-    updates.pageConfidence = 40;
+    const pageId = input.pageIdOrUrl.trim().replace(/\D/g, "");
+    if (!pageId) throw new Error("Gecersiz Facebook Page ID");
+    const validation = await verifyFacebookPageById({
+      connectionId: ctx.connectionId,
+      pageId,
+    });
+    if (!validation.valid) {
+      throw new Error(validation.error?.message ?? "Facebook Page dogrulanamadi");
+    }
+    updates.defaultPageId = validation.pageId ?? pageId;
+    updates.defaultPageName = validation.pageName;
+    updates.defaultInstagramId = validation.instagramBusinessAccountId;
+    updates.pageSource = "manual_verified";
+    updates.pageConfidence = 100;
   }
 
   if (input.pixelId?.trim()) {

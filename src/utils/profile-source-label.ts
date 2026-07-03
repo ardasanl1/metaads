@@ -9,6 +9,7 @@ export function profileSourceLabel(source?: string): string {
     custom_conversion: "Custom conversion üzerinden bulundu",
     historical_ad: "Mevcut reklamlardan bulundu",
     manual: "Manuel olarak tanımlandı",
+    manual_verified: "Manuel Page ID dogrulandi",
   };
   return map[source ?? ""] ?? "Bilinmeyen kaynak";
 }

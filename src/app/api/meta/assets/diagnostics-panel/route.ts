@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     const pixels = await resolveAdAccountPixels({ connectionId, adAccountId });
 
     return NextResponse.json({
+      connectionId,
       token: {
         subjectName: tokenDiagnostics.tokenSubjectName,
         subjectId: tokenDiagnostics.tokenSubjectId,
@@ -37,10 +38,15 @@ export async function GET(request: NextRequest) {
         requestErrors: tokenDiagnostics.requestErrors,
       },
       adAccount: pages.diagnostic.adAccount,
+      meAccounts: pages.diagnostic.meAccounts,
+      promotePages: pages.diagnostic.promotePages,
+      profilePage: pages.diagnostic.profilePage,
       pageDiscovery: pages.diagnostic.pageDiscovery,
       pages: pages.diagnostic.pages,
       errors: pages.diagnostic.errors,
+      status: pages.diagnostic.status,
       reason: pages.diagnostic.reason,
+      tokenSubject: pages.diagnostic.tokenSubject,
       usablePages: pages.pages.map((p) => ({
         id: p.id,
         name: p.name,

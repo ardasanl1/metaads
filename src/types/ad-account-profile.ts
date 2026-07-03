@@ -16,7 +16,8 @@ export type PageSource =
   | "direct_user_accounts"
   | "direct_business"
   | "historical_creative"
-  | "manual";
+  | "manual"
+  | "manual_verified";
 
 export type WebsiteSource = "historical_creative" | "historical_ad" | "manual";
 
