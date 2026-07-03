@@ -10,13 +10,16 @@ import {
   fetchAdAccountProfile,
   saveManualAdAccountProfile,
 } from "@/services/meta/client";
-import { profileSourceLabel as sourceLabel } from "@/utils/profile-source-label";
+import { profileIsCompleteForRecipe } from "@/utils/profile-completeness";
+import { profileSourceLabel } from "@/utils/profile-source-label";
 
 type UseAdAccountProfileInput = {
   connectionId?: string;
   businessId?: string;
   adAccountId?: string;
   recipeId?: CampaignRecipeId | null;
+  authMethod?: "oauth" | "manual";
+  onboardingCompleted?: boolean;
 };
 
 export function useAdAccountProfile(input: UseAdAccountProfileInput) {
@@ -48,68 +51,110 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
       setLoading(true);
       setError("");
       try {
-        if (!forceRefresh) {
-          const cached = await fetchAdAccountProfile({
-            connectionId: input.connectionId,
-            adAccountId: input.adAccountId,
+        const cached = await fetchAdAccountProfile({
+          connectionId: input.connectionId,
+          adAccountId: input.adAccountId,
+        });
+
+        const profileRecord = cached.profile;
+        const profileComplete =
+          profileRecord &&
+          profileIsCompleteForRecipe(
+            {
+              defaultPageId: profileRecord.page?.id,
+              defaultPixelId: profileRecord.pixel?.id,
+              defaultWebsiteUrl: profileRecord.website?.url,
+            },
+            required,
+          );
+
+        if (profileRecord && (!forceRefresh || input.authMethod === "oauth")) {
+          if (requestId !== requestRef.current) return;
+          if (input.authMethod === "oauth" && !profileComplete && !input.onboardingCompleted) {
+            setError(
+              "Meta hesap kurulumu gerekli. Ayarlar > Hesap kurulumu sayfasini tamamlayin.",
+            );
+            setDiscovery(null);
+            return;
+          }
+          setDiscovery({
+            success: true,
+            profile: {
+              page: profileRecord.page
+                ? {
+                    id: profileRecord.page.id,
+                    name: profileRecord.page.name,
+                    source: profileRecord.page.source ?? "manual",
+                    confidence: (profileRecord.page.confidence ?? 100) as never,
+                  }
+                : null,
+              instagram: profileRecord.instagram
+                ? {
+                    id: profileRecord.instagram.id,
+                    username: profileRecord.instagram.username,
+                    source: profileRecord.instagram.source ?? "manual",
+                    confidence: (profileRecord.instagram.confidence ?? 100) as never,
+                  }
+                : null,
+              pixel: profileRecord.pixel
+                ? {
+                    id: profileRecord.pixel.id,
+                    name: profileRecord.pixel.name,
+                    eventType: profileRecord.pixel.eventType ?? "PURCHASE",
+                    source: profileRecord.pixel.source ?? "manual",
+                    confidence: (profileRecord.pixel.confidence ?? 100) as never,
+                  }
+                : null,
+              website: profileRecord.website
+                ? {
+                    url: profileRecord.website.url,
+                    domain: profileRecord.website.domain ?? "",
+                    source: profileRecord.website.source ?? "manual",
+                    confidence: (profileRecord.website.confidence ?? 100) as never,
+                  }
+                : null,
+            },
+            candidates: cached.candidates ?? {
+              pages: [],
+              instagramAccounts: [],
+              pixels: [],
+              websites: [],
+            },
+            diagnostics: cached.diagnostics ?? {
+              directPageCount: 0,
+              historicalPageCount: 0,
+              directPixelCount: 0,
+              historicalPixelCount: 0,
+              customConversionPixelCount: 0,
+              websiteCount: 0,
+              adsScanned: 0,
+              adSetsScanned: 0,
+              creativesScanned: 0,
+              fromCache: true,
+              needsManualSetup: profileComplete
+                ? []
+                : (["page", "pixel", "website"] as const).filter((k) => {
+                    if (k === "page") return required.page && !profileRecord.page?.id;
+                    if (k === "pixel") return required.pixel && !profileRecord.pixel?.id;
+                    return required.website && !profileRecord.website?.url;
+                  }),
+            },
           });
-          if (cached.profile?.page?.id || cached.profile?.pixel?.id || cached.profile?.website?.url) {
-            if (requestId !== requestRef.current) return;
-            setDiscovery({
-              success: true,
-              profile: {
-                page: cached.profile.page
-                  ? {
-                      id: cached.profile.page.id,
-                      name: cached.profile.page.name,
-                      source: cached.profile.page.source ?? "manual",
-                      confidence: (cached.profile.page.confidence ?? 40) as never,
-                    }
-                  : null,
-                instagram: cached.profile.instagram
-                  ? {
-                      id: cached.profile.instagram.id,
-                      username: cached.profile.instagram.username,
-                      source: cached.profile.instagram.source ?? "manual",
-                      confidence: (cached.profile.instagram.confidence ?? 40) as never,
-                    }
-                  : null,
-                pixel: cached.profile.pixel
-                  ? {
-                      id: cached.profile.pixel.id,
-                      name: cached.profile.pixel.name,
-                      eventType: cached.profile.pixel.eventType,
-                      source: cached.profile.pixel.source ?? "manual",
-                      confidence: (cached.profile.pixel.confidence ?? 40) as never,
-                    }
-                  : null,
-                website: cached.profile.website
-                  ? {
-                      url: cached.profile.website.url,
-                      domain: cached.profile.website.domain ?? "",
-                      source: cached.profile.website.source ?? "manual",
-                      confidence: (cached.profile.website.confidence ?? 40) as never,
-                    }
-                  : null,
-              },
-              candidates: { pages: [], instagramAccounts: [], pixels: [], websites: [] },
-              diagnostics: {
-                directPageCount: 0,
-                historicalPageCount: 0,
-                directPixelCount: 0,
-                historicalPixelCount: 0,
-                customConversionPixelCount: 0,
-                websiteCount: 0,
-                adsScanned: 0,
-                adSetsScanned: 0,
-                creativesScanned: 0,
-                fromCache: true,
-                needsManualSetup: [],
-              },
-            });
+          if (profileComplete || input.authMethod === "oauth") {
             setLoading(false);
             return;
           }
+        }
+
+        if (input.authMethod === "oauth") {
+          setError("Kayitli profil bulunamadi. Meta hesap kurulumunu tamamlayin.");
+          setDiscovery(null);
+          return;
+        }
+
+        if (!forceRefresh) {
+          setLoading(false);
+          return;
         }
 
         const result = await discoverAdAccountProfile({
@@ -117,7 +162,7 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
           businessId: input.businessId,
           adAccountId: input.adAccountId,
           recipeId: input.recipeId ?? undefined,
-          forceRefresh,
+          forceRefresh: true,
         });
         if (requestId !== requestRef.current) return;
         setDiscovery(result);
@@ -129,7 +174,15 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
         if (requestId === requestRef.current) setLoading(false);
       }
     },
-    [input.connectionId, input.businessId, input.adAccountId, input.recipeId],
+    [
+      input.connectionId,
+      input.businessId,
+      input.adAccountId,
+      input.recipeId,
+      input.authMethod,
+      input.onboardingCompleted,
+      required,
+    ],
   );
 
   const applyToSelectedAssets = useCallback(
@@ -210,7 +263,7 @@ export function useAdAccountProfile(input: UseAdAccountProfileInput) {
     pageOptions,
     pixelOptions,
     websiteOptions,
-    sourceLabel,
+    sourceLabel: profileSourceLabel,
     reload: () => load(true),
     saveManual,
     applyToSelectedAssets,

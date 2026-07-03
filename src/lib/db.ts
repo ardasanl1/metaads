@@ -4,6 +4,7 @@ import { join } from "path";
 import { decryptToken, encryptToken } from "./token-crypto";
 import { normalizeAdAccountId } from "@/utils/ad-account";
 import type { LinkedAdAccount } from "@/types/meta";
+import type { MetaAuthMethod } from "@/types/meta-asset-sync";
 
 const LEGACY_CONNECTION_ID = "default";
 
@@ -18,6 +19,10 @@ type StoredConnection = {
   selectedAdAccountName: string;
   linkedAdAccountsJson: string;
   isActive: boolean;
+  authMethod: MetaAuthMethod;
+  grantedScopesJson: string;
+  tokenExpiresAt: string | null;
+  onboardingCompleted: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -33,6 +38,10 @@ export type MetaConnection = {
   selectedAdAccountName: string;
   linkedAdAccounts: LinkedAdAccount[];
   isActive: boolean;
+  authMethod: MetaAuthMethod;
+  grantedScopes: string[];
+  tokenExpiresAt: string | null;
+  onboardingCompleted: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -50,6 +59,10 @@ type MetaConnectionRow = {
   selected_ad_account_name: string;
   linked_ad_accounts: string | null;
   is_active: boolean;
+  auth_method: string | null;
+  granted_scopes: string | null;
+  token_expires_at: string | null;
+  onboarding_completed: boolean | null;
   created_at: string;
   updated_at: string;
 };
@@ -157,6 +170,22 @@ async function ensureTable(): Promise<void> {
     ALTER TABLE meta_connections
     ADD COLUMN IF NOT EXISTS meta_business_name TEXT
   `;
+  await sql`
+    ALTER TABLE meta_connections
+    ADD COLUMN IF NOT EXISTS auth_method TEXT NOT NULL DEFAULT 'manual'
+  `;
+  await sql`
+    ALTER TABLE meta_connections
+    ADD COLUMN IF NOT EXISTS granted_scopes TEXT NOT NULL DEFAULT '[]'
+  `;
+  await sql`
+    ALTER TABLE meta_connections
+    ADD COLUMN IF NOT EXISTS token_expires_at TEXT
+  `;
+  await sql`
+    ALTER TABLE meta_connections
+    ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT false
+  `;
 
   tableReady = true;
 }
@@ -185,9 +214,23 @@ function rowToStored(row: MetaConnectionRow): StoredConnection {
     selectedAdAccountName: row.selected_ad_account_name,
     linkedAdAccountsJson: row.linked_ad_accounts ?? "[]",
     isActive: row.is_active,
+    authMethod: (row.auth_method as MetaAuthMethod) ?? "manual",
+    grantedScopesJson: row.granted_scopes ?? "[]",
+    tokenExpiresAt: row.token_expires_at,
+    onboardingCompleted: row.onboarding_completed ?? false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function parseGrantedScopes(raw: string | null | undefined): string[] {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw) as string[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function toMetaConnection(stored: StoredConnection): MetaConnection {
@@ -205,6 +248,10 @@ function toMetaConnection(stored: StoredConnection): MetaConnection {
     selectedAdAccountName: stored.selectedAdAccountName,
     linkedAdAccounts,
     isActive: stored.isActive,
+    authMethod: stored.authMethod ?? "manual",
+    grantedScopes: parseGrantedScopes(stored.grantedScopesJson),
+    tokenExpiresAt: stored.tokenExpiresAt,
+    onboardingCompleted: stored.onboardingCompleted ?? false,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
   };
@@ -245,6 +292,10 @@ function migrateLegacyStored(legacy: {
         ])
       : "[]",
     isActive: true,
+    authMethod: "manual",
+    grantedScopesJson: "[]",
+    tokenExpiresAt: null,
+    onboardingCompleted: false,
     createdAt: legacy.createdAt,
     updatedAt: legacy.updatedAt,
   };
@@ -256,7 +307,8 @@ async function readAllFromPostgres(): Promise<StoredConnection[]> {
   const rows = await sql`
     SELECT id, access_token_encrypted, meta_user_id, meta_user_name, meta_business_id, meta_business_name,
            selected_ad_account_id, selected_ad_account_name, linked_ad_accounts,
-           is_active, created_at, updated_at
+           is_active, auth_method, granted_scopes, token_expires_at, onboarding_completed,
+           created_at, updated_at
     FROM meta_connections
     ORDER BY created_at ASC
   `;
@@ -288,7 +340,8 @@ async function writeAllToPostgres(connections: StoredConnection[]): Promise<void
       INSERT INTO meta_connections (
         id, access_token_encrypted, meta_user_id, meta_user_name, meta_business_id, meta_business_name,
         selected_ad_account_id, selected_ad_account_name, linked_ad_accounts,
-        is_active, created_at, updated_at
+        is_active, auth_method, granted_scopes, token_expires_at, onboarding_completed,
+        created_at, updated_at
       ) VALUES (
         ${connection.id},
         ${connection.accessTokenEncrypted},
@@ -300,6 +353,10 @@ async function writeAllToPostgres(connections: StoredConnection[]): Promise<void
         ${connection.selectedAdAccountName},
         ${connection.linkedAdAccountsJson},
         ${connection.isActive},
+        ${connection.authMethod ?? "manual"},
+        ${connection.grantedScopesJson ?? "[]"},
+        ${connection.tokenExpiresAt},
+        ${connection.onboardingCompleted ?? false},
         ${connection.createdAt},
         ${connection.updatedAt}
       )
@@ -317,6 +374,10 @@ function readAllFromFile(): StoredConnection[] {
         metaBusinessId: item.metaBusinessId ?? null,
         metaBusinessName: item.metaBusinessName ?? null,
         linkedAdAccountsJson: item.linkedAdAccountsJson ?? "[]",
+        authMethod: item.authMethod ?? "manual",
+        grantedScopesJson: item.grantedScopesJson ?? "[]",
+        tokenExpiresAt: item.tokenExpiresAt ?? null,
+        onboardingCompleted: item.onboardingCompleted ?? false,
       }));
     } catch {
       return [];
@@ -417,6 +478,7 @@ export async function saveMetaConnection(input: {
   metaBusinessName?: string | null;
   adAccountId?: string;
   adAccountName?: string;
+  authMethod?: MetaAuthMethod;
 }): Promise<MetaConnectionSummary> {
   const now = new Date().toISOString();
   const connections = await readAllStored();
@@ -436,6 +498,10 @@ export async function saveMetaConnection(input: {
     selectedAdAccountName: input.adAccountName ?? existing?.selectedAdAccountName ?? "",
     linkedAdAccountsJson: existing?.linkedAdAccountsJson ?? "[]",
     isActive: existing?.isActive ?? connections.length === 0,
+    authMethod: input.authMethod ?? existing?.authMethod ?? "manual",
+    grantedScopesJson: existing?.grantedScopesJson ?? "[]",
+    tokenExpiresAt: existing?.tokenExpiresAt ?? null,
+    onboardingCompleted: existing?.onboardingCompleted ?? false,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -459,6 +525,54 @@ export async function saveMetaConnection(input: {
   await writeAllStored(next);
 
   return toSummary(toMetaConnection(nextConnection));
+}
+
+export async function saveOAuthMetaConnection(input: {
+  accessToken: string;
+  metaUserId: string;
+  metaUserName?: string | null;
+  grantedScopes?: string[];
+  tokenExpiresAt?: string | null;
+}): Promise<MetaConnectionSummary> {
+  const now = new Date().toISOString();
+  const connections = await readAllStored();
+  const connectionId = input.metaUserId;
+  const existing = connections.find((item) => item.id === connectionId);
+
+  const nextConnection: StoredConnection = {
+    id: connectionId,
+    accessTokenEncrypted: encryptToken(input.accessToken),
+    metaUserId: input.metaUserId,
+    metaUserName: input.metaUserName ?? existing?.metaUserName ?? null,
+    metaBusinessId: existing?.metaBusinessId ?? null,
+    metaBusinessName: existing?.metaBusinessName ?? null,
+    selectedAdAccountId: existing?.selectedAdAccountId ?? "",
+    selectedAdAccountName: existing?.selectedAdAccountName ?? "",
+    linkedAdAccountsJson: existing?.linkedAdAccountsJson ?? "[]",
+    isActive: true,
+    authMethod: "oauth",
+    grantedScopesJson: JSON.stringify(input.grantedScopes ?? []),
+    tokenExpiresAt: input.tokenExpiresAt ?? null,
+    onboardingCompleted: false,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+
+  const withoutCurrent = connections.filter((item) => item.id !== connectionId);
+  const next = ensureSingleActive(
+    withoutCurrent.map((item) => ({ ...item, isActive: false })).concat(nextConnection),
+  );
+  await writeAllStored(next);
+  return toSummary(toMetaConnection(nextConnection));
+}
+
+export async function setOnboardingCompleted(connectionId: string, completed: boolean): Promise<void> {
+  const connections = await readAllStored();
+  const now = new Date().toISOString();
+  const next = connections.map((item) =>
+    item.id === connectionId ? { ...item, onboardingCompleted: completed, updatedAt: now } : item,
+  );
+  await writeAllStored(next);
 }
 
 export async function updateMetaUserName(

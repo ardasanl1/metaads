@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
       metaBusinessId: manualBusinessId || verified.metaBusinessId,
       adAccountId: normalizedAccountId,
       adAccountName: accountName,
+      authMethod: "manual",
     });
 
     await setActiveConnection(saved.id);

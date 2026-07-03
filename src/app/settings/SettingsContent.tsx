@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState, type ReactNode } from "react";
 import PanelLayout from "@/components/PanelLayout";
 import { AddAdAccountForm } from "@/components/selectors/AddAdAccountForm";
@@ -104,56 +105,77 @@ function SettingsBody() {
   return (
     <div className="space-y-6">
       <SectionCard
-        title="İşletme Bağlantısı"
-        description="Her işletme için ayrı erişim tokenı ekleyin. Reklam hesaplarını Meta ID ile manuel bağlarsınız."
+        title="Meta ile Bağlan"
+        description="Önerilen yöntem. Business, reklam hesabı, Page, Instagram ve Pixel varlıkları otomatik senkronize edilir."
         actions={
           <Badge variant={status?.connected ? "success" : "muted"}>
-            {connections.length > 0 ? `${connections.length} işletme` : "Bağlı değil"}
+            {connections.length > 0 ? `${connections.length} bağlantı` : "Bağlı değil"}
           </Badge>
         }
       >
-          {message && (
-            <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-900/50 dark:bg-green-950/30 dark:text-green-200">
-              {message}
-            </p>
-          )}
-          {error && (
-            <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </p>
-          )}
+        {message && (
+          <p className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-900/50 dark:bg-green-950/30 dark:text-green-200">
+            {message}
+          </p>
+        )}
+        {error && (
+          <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
 
-          {connections.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Bağlı işletmeler</p>
-              {connections.map((connection) => (
-                <div
-                  key={connection.id}
-                  className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="text-sm">
-                    <p className="font-medium">{getFirmDisplayName(connection)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {connection.linkedAdAccounts.length} kayıtlı reklam hesabı
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    disabled={disconnectingId === connection.id}
-                    onClick={() =>
-                      void handleDisconnect(connection.id, getFirmDisplayName(connection))
-                    }
-                  >
-                    {disconnectingId === connection.id ? "Kaldırılıyor..." : "Kaldır"}
-                  </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild>
+            <a href="/api/meta/oauth/connect">Meta ile Bağlan</a>
+          </Button>
+          {activeConnectionId && connections.find((c) => c.id === activeConnectionId)?.authMethod === "oauth" && (
+            <>
+              <Button variant="outline" asChild>
+                <a href="/api/meta/oauth/connect?reauthorize=1">Bağlantıyı yeniden yetkilendir</a>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href="/settings/meta-setup">Hesap kurulumu</Link>
+              </Button>
+            </>
+          )}
+        </div>
+
+        {connections.length > 0 && (
+          <div className="mt-6 space-y-2">
+            <p className="text-sm font-medium">Bağlı hesaplar</p>
+            {connections.map((connection) => (
+              <div
+                key={connection.id}
+                className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="text-sm">
+                  <p className="font-medium">{getFirmDisplayName(connection)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {connection.authMethod === "oauth" ? "OAuth" : "Legacy"} ·{" "}
+                    {connection.linkedAdAccounts.length} reklam hesabı
+                    {connection.onboardingCompleted ? " · Kurulum tamam" : ""}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={disconnectingId === connection.id}
+                  onClick={() => void handleDisconnect(connection.id, getFirmDisplayName(connection))}
+                >
+                  {disconnectingId === connection.id ? "Kaldırılıyor..." : "Kaldır"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
 
-          <form onSubmit={handleConnect} className="space-y-3">
+      <SectionCard
+        title="Legacy / Gelişmiş bağlantı"
+        description="Manuel Graph API Explorer tokenı. Granular varlık erişimi içermeyebilir; tam otomatik senkronizasyon için Meta ile Bağlan kullanın."
+      >
+        <form onSubmit={handleConnect} className="space-y-3">
             <div className="space-y-1.5">
               <label htmlFor="accessToken" className="text-sm font-medium text-foreground">
                 İşletme Erişim Tokenı

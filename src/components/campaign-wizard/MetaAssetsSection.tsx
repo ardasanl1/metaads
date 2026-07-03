@@ -40,6 +40,8 @@ type MetaAssetsSectionProps = {
   discovery: AccountProfileDiscoveryResult | null;
   loading: boolean;
   needsManualForm: boolean;
+  authMethod?: "oauth" | "manual";
+  profileError?: string;
   pageOptions: AccountProfileDiscoveryResult["candidates"]["pages"];
   pixelOptions: AccountProfileDiscoveryResult["candidates"]["pixels"];
   websiteOptions: AccountProfileDiscoveryResult["candidates"]["websites"];
@@ -64,6 +66,8 @@ export function MetaAssetsSection({
   discovery,
   loading,
   needsManualForm,
+  authMethod,
+  profileError,
   pageOptions,
   pixelOptions,
   websiteOptions,
@@ -125,29 +129,56 @@ export function MetaAssetsSection({
     }
   }
 
+  const isLegacy = authMethod === "manual" || !authMethod;
+  const isOAuth = authMethod === "oauth";
+
   return (
     <div className="space-y-4">
+      {isLegacy && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-muted-foreground">
+          Manuel token gerekli granular varlik erisimlerini icermeyebilir. Tam otomatik varlik
+          senkronizasyonu icin Ayarlar&apos;dan &quot;Meta ile Baglan&quot; yontemini kullanin.
+        </div>
+      )}
+
+      {profileError && isOAuth && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {profileError}{" "}
+          <Link href="/settings/meta-setup" className="underline">
+            Hesap kurulumuna git
+          </Link>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Reklam hesabınızdan bulunan Meta varlıkları
+          {isOAuth ? "Kayitli Meta hesap profili" : "Reklam hesabinizdan bulunan Meta varliklari"}
         </p>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0">
               <MoreHorizontal className="h-4 w-4" />
-              <span className="sr-only">Meta hesapları işlemleri</span>
+              <span className="sr-only">Meta hesaplari islemleri</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onRescan} disabled={loading}>
-              <ScanSearch className="mr-2 h-4 w-4" />
-              Yeniden tara
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setSetupOpen(true)}>
-              Hesap bilgilerini düzenle
-            </DropdownMenuItem>
+            {isLegacy && (
+              <DropdownMenuItem onClick={onRescan} disabled={loading}>
+                <ScanSearch className="mr-2 h-4 w-4" />
+                Yeniden tara
+              </DropdownMenuItem>
+            )}
+            {isOAuth ? (
+              <DropdownMenuItem asChild>
+                <Link href="/settings/meta-setup">Hesap kurulumunu duzenle</Link>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={() => setSetupOpen(true)}>
+                Hesap bilgilerini duzenle
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem asChild>
-              <Link href="/settings/asset-diagnostics">Tanılamayı aç</Link>
+              <Link href="/settings/asset-diagnostics">Tanilamayi ac</Link>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -250,7 +281,7 @@ export function MetaAssetsSection({
         </div>
       )}
 
-      {showManualWarning && (
+      {showManualWarning && isLegacy && (
         <div className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3">
           <p className="text-sm text-muted-foreground">
             Meta hesabınızdan Facebook Sayfası ve Pixel otomatik bulunamadı.

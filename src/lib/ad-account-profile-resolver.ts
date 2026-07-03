@@ -2,10 +2,10 @@ import "server-only";
 
 import {
   getAdAccountProfile,
-  profileIsCompleteForRecipe,
   profileNeedsFullDiscovery,
   upsertAdAccountProfile,
 } from "@/lib/ad-account-profile-db";
+import { profileIsCompleteForRecipe } from "@/utils/profile-completeness";
 import { requireMetaConnectionContext } from "@/lib/meta-connection-context";
 import {
   discoverFromAdHistory,

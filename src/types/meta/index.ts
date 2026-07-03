@@ -25,6 +25,10 @@ export type MetaConnectionSummary = {
   selectedAdAccountName: string;
   linkedAdAccounts: LinkedAdAccount[];
   isActive: boolean;
+  authMethod?: "oauth" | "manual";
+  grantedScopes?: string[];
+  tokenExpiresAt?: string | null;
+  onboardingCompleted?: boolean;
   createdAt: string;
   updatedAt: string;
   displayName?: string;

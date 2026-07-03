@@ -8,6 +8,13 @@ import {
   setCachedSnapshot,
 } from "@/lib/account-snapshot-cache";
 import { getMetaConnectionById } from "@/lib/db";
+import { getAdAccountProfile } from "@/lib/ad-account-profile-db";
+import {
+  listSyncedInstagramAccounts,
+  listSyncedPages,
+  listSyncedPixels,
+} from "@/lib/meta-asset-sync-db";
+import { normalizeAdAccountId } from "@/utils/ad-account";
 import {
   ensureMetaBusinessId,
   getAdAccountInfo,
@@ -139,7 +146,94 @@ export async function fetchAccountSnapshot(
   const needsPage = required.some((asset) =>
     ["page", "instagram", "instantForm", "whatsapp"].includes(asset),
   );
-  if (needsPage) {
+
+  let profileAutoSelected: SelectedMetaAssets | undefined;
+
+  if (connection.authMethod === "oauth") {
+    const profile = await getAdAccountProfile(input.connectionId, input.adAccountId);
+    const normalizedAdAccountId = normalizeAdAccountId(input.adAccountId);
+    const [syncedPages, syncedPixels, syncedInstagram] = await Promise.all([
+      listSyncedPages(input.connectionId),
+      listSyncedPixels(input.connectionId),
+      listSyncedInstagramAccounts(input.connectionId),
+    ]);
+
+    if (needsPage) {
+      const usablePages = syncedPages.filter((p) => p.usability === "DISCOVERED_AND_USABLE");
+      pages.push(
+        ...usablePages.map((p) => ({
+          id: p.metaPageId,
+          name: p.name,
+          instagramBusinessAccountId: p.instagramBusinessAccountId,
+          sources: ["user_accounts" as const],
+          usableForAds: true,
+          available: true,
+        })),
+      );
+      pageRequestSucceeded = true;
+    }
+
+    if (required.includes("pixel")) {
+      const usablePixels = syncedPixels.filter(
+        (p) =>
+          p.usability === "DISCOVERED_AND_USABLE" &&
+          (!p.adAccountId || p.adAccountId === normalizedAdAccountId),
+      );
+      pixels.push(
+        ...usablePixels.map((p) => ({
+          id: p.metaPixelId,
+          name: p.name,
+          lastFiredTime: p.lastFiredTime,
+          source: "ad_account" as const,
+          available: true,
+        })),
+      );
+      pixelRequestSucceeded = true;
+    }
+
+    if (profile?.defaultInstagramId) {
+      instagramAccounts.push({
+        id: profile.defaultInstagramId,
+        username: profile.defaultInstagramUsername,
+        name: profile.defaultInstagramUsername ?? profile.defaultInstagramId,
+        pageId: profile.defaultPageId,
+        pageName: profile.defaultPageName,
+      });
+    } else {
+      const ig = syncedInstagram.find((i) => i.usability === "DISCOVERED_AND_USABLE");
+      if (ig) {
+        instagramAccounts.push({
+          id: ig.metaInstagramId,
+          username: ig.username,
+          name: ig.username ?? ig.metaInstagramId,
+          pageId: ig.pageId,
+        });
+      }
+    }
+
+    if (profile?.defaultPageId || profile?.defaultPixelId || profile?.defaultInstagramId) {
+      profileAutoSelected = {};
+      if (profile.defaultPageId) {
+        profileAutoSelected.page = {
+          id: profile.defaultPageId,
+          name: profile.defaultPageName ?? profile.defaultPageId,
+        };
+      }
+      if (profile.defaultPixelId) {
+        profileAutoSelected.pixel = {
+          id: profile.defaultPixelId,
+          name: profile.defaultPixelName ?? profile.defaultPixelId,
+        };
+      }
+      if (profile.defaultInstagramId) {
+        profileAutoSelected.instagram = {
+          id: profile.defaultInstagramId,
+          username: profile.defaultInstagramUsername,
+          name: profile.defaultInstagramUsername ?? profile.defaultInstagramId,
+        };
+      }
+    }
+  } else if (needsPage) {
     const pageResult = await resolveFacebookPages({
       connectionId: input.connectionId,
       adAccountId: input.adAccountId,
@@ -150,7 +244,7 @@ export async function fetchAccountSnapshot(
     pageDiagnosticReason = pageResult.diagnostic.reason;
   }
 
-  if (required.includes("pixel")) {
+  if (connection.authMethod !== "oauth" && required.includes("pixel")) {
     const pixelResult = await resolveAdAccountPixels({
       connectionId: input.connectionId,
       adAccountId: input.adAccountId,
@@ -246,7 +340,9 @@ export async function fetchAccountSnapshot(
     productSets,
     apps,
     diagnostics,
-    autoSelected: autoSelectFromSnapshot({
+    autoSelected:
+      profileAutoSelected ??
+      autoSelectFromSnapshot({
       pages,
       pixels,
       instagramAccounts,

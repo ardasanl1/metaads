@@ -515,6 +515,8 @@ export async function fetchAdAccountProfile(params: {
     lastDiscoveredAt?: string;
     lastVerifiedAt?: string;
   } | null;
+  candidates?: import("@/types/ad-account-profile").AccountProfileDiscoveryResult["candidates"];
+  diagnostics?: import("@/types/ad-account-profile").AccountProfileDiscoveryResult["diagnostics"];
 }> {
   return apiFetch(`/api/meta/account-profile${buildQuery(params)}`);
 }
@@ -578,6 +580,31 @@ export async function fetchAccountInsights(params?: InsightsParams): Promise<Par
     `/api/meta/insights${buildQuery(params ?? {})}`,
   );
   return data.insights;
+}
+
+export async function fetchOnboardingOptions(connectionId: string) {
+  return apiFetch<import("@/types/meta-asset-sync").OnboardingOptions & {
+    authMethod?: string;
+    onboardingCompleted?: boolean;
+  }>(`/api/meta/onboarding${buildQuery({ connectionId })}`);
+}
+
+export async function saveOnboardingSelection(
+  payload: import("@/types/meta-asset-sync").OnboardingSelection,
+) {
+  return apiFetch<{ ok: boolean }>("/api/meta/onboarding/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function syncMetaAssets(connectionId: string) {
+  return apiFetch<import("@/types/meta-asset-sync").MetaAssetSyncReport>("/api/meta/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connectionId }),
+  });
 }
 
 export type { QuickDateFilter, InsightsParams };

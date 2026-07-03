@@ -112,6 +112,8 @@ export function CampaignSurveyFlow() {
     businessId: activeConnection?.metaBusinessId ?? undefined,
     adAccountId: selectedAdAccountId ?? undefined,
     recipeId: recipeId as CampaignRecipeId | null,
+    authMethod: activeConnection?.authMethod,
+    onboardingCompleted: activeConnection?.onboardingCompleted,
   });
 
   useEffect(() => {
@@ -145,6 +147,25 @@ export function CampaignSurveyFlow() {
       <SectionCard title="Reklam hesabı seçin" description="Devam etmek için bir reklam hesabı seçin.">
         <Button asChild variant="outline">
           <a href="/settings">Ayarlara Git</a>
+        </Button>
+      </SectionCard>
+    );
+  }
+
+  const isOAuth = activeConnection?.authMethod === "oauth";
+  const needsMetaSetup =
+    isOAuth &&
+    activeConnection &&
+    !activeConnection.onboardingCompleted;
+
+  if (!accountLoading && needsMetaSetup) {
+    return (
+      <SectionCard
+        title="Meta hesap kurulumu gerekli"
+        description="Kampanya oluşturmadan önce işletme, reklam hesabı, sayfa ve pixel seçimlerini bir kez tamamlayın."
+      >
+        <Button asChild>
+          <a href="/settings/meta-setup">Hesap Kurulumuna Git</a>
         </Button>
       </SectionCard>
     );
@@ -297,6 +318,8 @@ export function CampaignSurveyFlow() {
               discovery={accountProfile.discovery}
               loading={accountProfile.loading}
               needsManualForm={accountProfile.needsManualForm}
+              authMethod={activeConnection?.authMethod}
+              profileError={accountProfile.error}
               pageOptions={accountProfile.pageOptions}
               pixelOptions={accountProfile.pixelOptions}
               websiteOptions={accountProfile.websiteOptions}
