@@ -2,6 +2,22 @@ import type { CampaignRecipeId } from "@/config/campaign-recipes";
 import type { WizardCtaChoice, WizardGender, WizardSpecialAdCategory } from "@/types/campaign-wizard";
 import type { SelectedMetaAssets } from "@/types/meta-assets";
 
+export type PixelResolution =
+  | {
+      status: "available";
+      pixelId: string;
+      pixelName: string;
+    }
+  | {
+      status: "not_required";
+    }
+  | {
+      status: "missing_fallback_available";
+    }
+  | {
+      status: "missing_blocking";
+    };
+
 export type BusinessGoalId =
   | "brand_awareness"
   | "website_traffic"
@@ -39,9 +55,12 @@ export type DesiredResultId =
 
 export type SelectedMetaLocation = {
   key: string;
+  name: string;
   type: "country" | "region" | "city" | "zip";
-  displayName: string;
   countryCode: string;
+  countryName?: string;
+  regionName?: string;
+  displayName: string;
 };
 
 export type MediaDraft = {
@@ -75,6 +94,8 @@ export type CampaignQuestionnaireAnswers = {
   specialAdCategories: WizardSpecialAdCategory[];
   followUpAnswers: Record<string, string>;
   selectedAssets: SelectedMetaAssets;
+  /** Website Sales + Pixel yokken TRAFFIC_WEBSITE fallback onayı */
+  salesTrafficFallbackAccepted?: boolean;
   campaignName?: string;
   adSetName?: string;
   adName?: string;
@@ -82,7 +103,23 @@ export type CampaignQuestionnaireAnswers = {
 
 export type ResolvedCampaignPlan = {
   recipeId: CampaignRecipeId;
+  /** Kullanıcının seçtiği orijinal recipe (fallback öncesi) */
+  baseRecipeId: CampaignRecipeId;
+  effectiveRecipeId: CampaignRecipeId;
   recipeEnabled: boolean;
+
+  businessGoalLabel: string;
+  conversionDestinationLabel: string;
+  performanceGoalLabel: string;
+
+  audience: {
+    locations: SelectedMetaLocation[];
+    ageMin: number;
+    ageMax: number;
+    genders: string[];
+  };
+
+  pixelResolution: PixelResolution;
 
   campaign: {
     name: string;

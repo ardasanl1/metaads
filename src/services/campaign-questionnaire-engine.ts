@@ -8,6 +8,8 @@ import type {
   SurveyQuestion,
   SurveyQuestionId,
 } from "@/types/campaign-questionnaire";
+import { recipeRequiresWebsiteUrl } from "@/utils/recipe-pixel";
+import { isAllowedWebsiteUrl, normalizeWebsiteUrl } from "@/utils/url-normalize";
 
 export const BUSINESS_GOAL_OPTIONS = [
   { id: "brand_awareness" as const, label: "Daha fazla kişi markamı görsün" },
@@ -332,8 +334,8 @@ export function canProceedFromQuestion(
         return false;
       }
       if (
-        (recipe.requiredUserFields.includes("websiteUrl") || recipeId === "SALES_WEBSITE") &&
-        !answers.creative.destinationUrl?.trim()
+        websiteUrlRequiredForRecipe(recipeId) &&
+        !websiteUrlIsValid(answers)
       ) {
         return false;
       }
@@ -343,12 +345,11 @@ export function canProceedFromQuestion(
     }
     case "creative": {
       const recipeId = resolveRecipeFromAnswers(answers);
-      const recipe = recipeId ? getCampaignRecipe(recipeId) : null;
       const hasMedia = Boolean(answers.creative.media[0]?.imageHash);
       const hasCopy =
         Boolean(answers.creative.primaryText.trim()) && Boolean(answers.creative.headline.trim());
       if (!hasMedia || !hasCopy) return false;
-      if (recipe?.requiredUserFields.includes("websiteUrl") && !answers.creative.destinationUrl?.trim()) {
+      if (websiteUrlRequiredForRecipe(recipeId) && !websiteUrlIsValid(answers)) {
         return false;
       }
       return true;
@@ -382,6 +383,77 @@ export function isRecipeResolvable(answers: CampaignQuestionnaireAnswers): boole
 
 export function getDestinationLabel(id: ConversionDestinationId): string {
   return DESTINATION_LABELS[id];
+}
+
+const CONVERSION_LOCATION_LABELS: Record<string, string> = {
+  WEBSITE: "Web sitesi",
+  WHATSAPP: "WhatsApp",
+  INSTAGRAM_DIRECT: "Instagram mesajları",
+  MESSENGER: "Messenger",
+  ON_AD: "Meta hızlı formu",
+  PHONE_CALL: "Telefon araması",
+  APP: "Mobil uygulama",
+  CATALOG: "Ürün kataloğu",
+};
+
+export function getConversionDestinationLabelForPlan(
+  answers: CampaignQuestionnaireAnswers,
+  baseRecipeId: CampaignRecipeId,
+): string {
+  if (answers.conversionDestination) {
+    return getDestinationLabel(answers.conversionDestination);
+  }
+  if (answers.followUpAnswers.lead_collection_method) {
+    const method = answers.followUpAnswers.lead_collection_method as ConversionDestinationId;
+    if (DESTINATION_LABELS[method]) return DESTINATION_LABELS[method];
+  }
+  const recipe = getCampaignRecipe(baseRecipeId);
+  if (recipe?.conversionLocation && CONVERSION_LOCATION_LABELS[recipe.conversionLocation]) {
+    return CONVERSION_LOCATION_LABELS[recipe.conversionLocation];
+  }
+  if (answers.businessGoal === "website_sales" || answers.businessGoal === "website_traffic") {
+    return "Web sitesi";
+  }
+  return "—";
+}
+
+const OPTIMIZATION_LABELS: Record<string, string> = {
+  OFFSITE_CONVERSIONS: "Dönüşüm optimizasyonu",
+  LANDING_PAGE_VIEWS: "Landing page görüntülemeleri",
+  LINK_CLICKS: "Link tıklamaları",
+  REACH: "Erişim",
+  IMPRESSIONS: "Gösterim",
+  POST_ENGAGEMENT: "Gönderi etkileşimi",
+  THRUPLAY: "Video görüntüleme",
+  CONVERSATIONS: "Mesajlaşma konuşmaları",
+  LEAD_GENERATION: "Potansiyel müşteri",
+};
+
+export function getPerformanceGoalLabel(
+  effectiveRecipeId: CampaignRecipeId,
+  baseRecipeId: CampaignRecipeId,
+  answers: CampaignQuestionnaireAnswers,
+): string {
+  const recipe = getCampaignRecipe(effectiveRecipeId);
+  if (!recipe) return "—";
+  if (
+    baseRecipeId === "SALES_WEBSITE" &&
+    effectiveRecipeId === "TRAFFIC_WEBSITE" &&
+    answers.salesTrafficFallbackAccepted
+  ) {
+    return OPTIMIZATION_LABELS.LANDING_PAGE_VIEWS;
+  }
+  return OPTIMIZATION_LABELS[recipe.optimizationGoal] ?? recipe.performanceGoal ?? recipe.optimizationGoal;
+}
+
+function websiteUrlRequiredForRecipe(recipeId: CampaignRecipeId | null): boolean {
+  if (!recipeId) return false;
+  return recipeRequiresWebsiteUrl(recipeId);
+}
+
+function websiteUrlIsValid(answers: CampaignQuestionnaireAnswers): boolean {
+  const normalized = normalizeWebsiteUrl(answers.creative.destinationUrl ?? "");
+  return Boolean(normalized && isAllowedWebsiteUrl(normalized));
 }
 
 export function getDesiredResultLabel(id: DesiredResultId): string {

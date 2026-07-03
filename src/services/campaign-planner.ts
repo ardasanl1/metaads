@@ -7,7 +7,9 @@ import {
 } from "@/config/campaign-recipes";
 import {
   getBusinessGoalLabel,
+  getConversionDestinationLabelForPlan,
   getDesiredResultLabel,
+  getPerformanceGoalLabel,
   resolveRecipeFromAnswers,
 } from "@/services/campaign-questionnaire-engine";
 import type {
@@ -15,6 +17,14 @@ import type {
   ResolvedCampaignPlan,
 } from "@/types/campaign-questionnaire";
 import type { WizardCtaChoice } from "@/types/campaign-wizard";
+import {
+  recipeRequiresPixel,
+  recipeRequiresWebsiteUrl,
+  resolveEffectiveRecipeId,
+  resolvePixelResolution,
+} from "@/utils/recipe-pixel";
+import { isAllowedWebsiteUrl, normalizeWebsiteUrl } from "@/utils/url-normalize";
+import { buildTargetingFromAudience } from "@/utils/wizard-location";
 
 export type PlanValidationResult = {
   valid: boolean;
@@ -46,30 +56,6 @@ export function generateAutoNames(
   };
 }
 
-function buildTargeting(answers: CampaignQuestionnaireAnswers): Record<string, unknown> {
-  const targeting: Record<string, unknown> = {
-    age_min: answers.audience.ageMin,
-    age_max: answers.audience.ageMax,
-  };
-
-  const genders = answers.audience.genders.filter((g) => g !== "ALL");
-  if (genders.length === 1) {
-    targeting.genders = genders[0] === "MALE" ? [1] : [2];
-  }
-
-  const location = answers.audience.locations[0] ?? answers.selectedAssets.location;
-  if (location) {
-    if (location.type === "city") targeting.geo_locations = { cities: [{ key: location.key }] };
-    else if (location.type === "region") targeting.geo_locations = { regions: [{ key: location.key }] };
-    else if (location.type === "zip") targeting.geo_locations = { zips: [{ key: location.key }] };
-    else targeting.geo_locations = { countries: [location.countryCode.toUpperCase()] };
-  } else {
-    targeting.geo_locations = { countries: ["TR"] };
-  }
-
-  return targeting;
-}
-
 function buildPromotedObject(
   recipeId: CampaignRecipeId,
   answers: CampaignQuestionnaireAnswers,
@@ -84,7 +70,7 @@ function buildPromotedObject(
   if (recipe.promotedObjectKeys.includes("pixel_id") && assets.pixel?.id) {
     promoted.pixel_id = assets.pixel.id;
   }
-  if (recipe.promotedObjectKeys.includes("custom_event_type") && recipe.conversionEvent) {
+  if (recipe.promotedObjectKeys.includes("custom_event_type") && recipe.conversionEvent && assets.pixel?.id) {
     promoted.custom_event_type = recipe.conversionEvent;
   }
   if (recipe.promotedObjectKeys.includes("lead_gen_form_id") && assets.instantForm?.id) {
@@ -108,18 +94,27 @@ function pickCta(recipeId: CampaignRecipeId, answers: CampaignQuestionnaireAnswe
   return recipe.defaultCta;
 }
 
+function resolveDestinationUrl(answers: CampaignQuestionnaireAnswers): string | undefined {
+  const raw = answers.creative.destinationUrl?.trim();
+  if (!raw) return undefined;
+  return normalizeWebsiteUrl(raw) ?? undefined;
+}
+
 export function resolveCampaignPlan(answers: CampaignQuestionnaireAnswers): ResolvedCampaignPlan | null {
-  const recipeId = resolveRecipeFromAnswers(answers);
-  if (!recipeId) return null;
+  const baseRecipeId = resolveRecipeFromAnswers(answers);
+  if (!baseRecipeId) return null;
 
-  const canonicalId = normalizeRecipeId(recipeId);
-  if (!canonicalId) return null;
+  const canonicalBase = normalizeRecipeId(baseRecipeId);
+  if (!canonicalBase) return null;
 
-  const recipe = getCampaignRecipe(canonicalId);
+  const pixelResolution = resolvePixelResolution(canonicalBase, answers);
+  const effectiveRecipeId = resolveEffectiveRecipeId(answers, canonicalBase);
+  const recipe = getCampaignRecipe(effectiveRecipeId);
   if (!recipe) return null;
 
-  const names = generateAutoNames(answers, canonicalId);
-  const cta = pickCta(canonicalId, answers);
+  const names = generateAutoNames(answers, effectiveRecipeId);
+  const cta = pickCta(effectiveRecipeId, answers);
+  const destinationUrl = resolveDestinationUrl(answers);
   const specialCategories =
     answers.specialAdCategoryConfirmed && answers.specialAdCategories.length > 0
       ? answers.specialAdCategories.filter((c) => c !== "NONE")
@@ -130,9 +125,12 @@ export function resolveCampaignPlan(answers: CampaignQuestionnaireAnswers): Reso
 
   for (const assetKind of recipe.requiredAssets) {
     if (assetKind === "location") {
-      if (!answers.audience.locations[0]?.key && !answers.selectedAssets.location?.key) {
+      if (!answers.audience.locations[0]?.key) {
         unresolvedFields.push("location");
       }
+      continue;
+    }
+    if (assetKind === "pixel" && pixelResolution.status === "missing_fallback_available") {
       continue;
     }
     const key = assetKind as keyof typeof answers.selectedAssets;
@@ -140,7 +138,14 @@ export function resolveCampaignPlan(answers: CampaignQuestionnaireAnswers): Reso
     else unresolvedFields.push(assetKind);
   }
 
-  if (recipe.requiredUserFields.includes("websiteUrl") && !answers.creative.destinationUrl?.trim()) {
+  if (recipeRequiresPixel(effectiveRecipeId)) {
+    const pixelInAssets = answers.selectedAssets.pixel?.id;
+    if (!pixelInAssets && !unresolvedFields.includes("pixel")) {
+      unresolvedFields.push("pixel");
+    }
+  }
+
+  if (recipeRequiresWebsiteUrl(effectiveRecipeId) && !destinationUrl) {
     unresolvedFields.push("destinationUrl");
   }
   if (!answers.creative.primaryText.trim()) unresolvedFields.push("primaryText");
@@ -154,13 +159,26 @@ export function resolveCampaignPlan(answers: CampaignQuestionnaireAnswers): Reso
     answers.desiredResult
       ? `Sonuç: ${getDesiredResultLabel(answers.desiredResult as never)}`
       : "",
-    `Recipe: ${canonicalId}`,
+    `Recipe: ${effectiveRecipeId}`,
     recipe.enabled ? "Recipe aktif" : "Recipe henüz aktif değil",
   ].filter(Boolean);
 
   return {
-    recipeId: canonicalId,
-    recipeEnabled: isRecipeEnabled(canonicalId),
+    recipeId: effectiveRecipeId,
+    baseRecipeId: canonicalBase,
+    effectiveRecipeId,
+    recipeEnabled: isRecipeEnabled(effectiveRecipeId),
+
+    businessGoalLabel: getBusinessGoalLabel(answers.businessGoal as never),
+    conversionDestinationLabel: getConversionDestinationLabelForPlan(answers, canonicalBase),
+    performanceGoalLabel: getPerformanceGoalLabel(effectiveRecipeId, canonicalBase, answers),
+    audience: {
+      locations: answers.audience.locations,
+      ageMin: answers.audience.ageMin,
+      ageMax: answers.audience.ageMax,
+      genders: answers.audience.genders,
+    },
+    pixelResolution,
 
     campaign: {
       name: answers.campaignName?.trim() || names.campaignName,
@@ -182,13 +200,18 @@ export function resolveCampaignPlan(answers: CampaignQuestionnaireAnswers): Reso
       dailyBudget: answers.dailyBudget,
       startTime: answers.startDate ? `${answers.startDate}T00:00:00` : undefined,
       endTime: answers.endDate ? `${answers.endDate}T00:00:00` : undefined,
-      promotedObject: buildPromotedObject(canonicalId, answers),
-      conversionEvent: recipe.conversionEvent,
+      promotedObject: buildPromotedObject(effectiveRecipeId, answers),
+      conversionEvent: recipeRequiresPixel(effectiveRecipeId) ? recipe.conversionEvent : undefined,
       attributionSettings: recipe.attributionWindow
         ? { window: recipe.attributionWindow }
         : undefined,
       placements: { advantage_plus: true, mode: recipe.placements },
-      targeting: buildTargeting(answers),
+      targeting: buildTargetingFromAudience({
+        locations: answers.audience.locations,
+        ageMin: answers.audience.ageMin,
+        ageMax: answers.audience.ageMax,
+        genders: answers.audience.genders,
+      }),
       status: "PAUSED",
     },
 
@@ -200,7 +223,7 @@ export function resolveCampaignPlan(answers: CampaignQuestionnaireAnswers): Reso
       },
       format: answers.creative.media[0]?.format ?? "image",
       callToAction: cta,
-      destinationUrl: answers.creative.destinationUrl,
+      destinationUrl,
       primaryText: answers.creative.primaryText,
       headline: answers.creative.headline,
       description: answers.creative.description,
@@ -218,15 +241,18 @@ export function resolveCampaignPlan(answers: CampaignQuestionnaireAnswers): Reso
   };
 }
 
-export function validateResolvedCampaignPlan(plan: ResolvedCampaignPlan | null): PlanValidationResult {
+export function validateResolvedCampaignPlan(
+  plan: ResolvedCampaignPlan | null,
+): PlanValidationResult {
   if (!plan) {
     return { valid: false, errors: ["Kampanya planı oluşturulamadı"] };
   }
 
   const errors: string[] = [];
+  const recipe = getCampaignRecipe(plan.effectiveRecipeId);
 
   if (!plan.recipeEnabled) {
-    errors.push(`${plan.recipeId} recipe şu an aktif değil`);
+    errors.push(`${plan.effectiveRecipeId} recipe şu an aktif değil`);
   }
 
   if (!plan.campaign.name.trim()) errors.push("Kampanya adı eksik");
@@ -238,24 +264,48 @@ export function validateResolvedCampaignPlan(plan: ResolvedCampaignPlan | null):
   if (!plan.creative.headline.trim()) errors.push("Başlık eksik");
   if (!plan.creative.identity.page_id) errors.push("Facebook Page eksik");
 
-  const recipe = getCampaignRecipe(plan.recipeId);
-  if (recipe?.requiredAssets.includes("pixel") && !plan.adSet.promotedObject?.pixel_id) {
+  if (!plan.audience.locations[0]?.key) {
+    errors.push("Hedef konum eksik");
+  }
+
+  if (recipeRequiresWebsiteUrl(plan.effectiveRecipeId)) {
+    if (!plan.creative.destinationUrl?.trim()) {
+      errors.push("Website URL eksik");
+    } else if (!isAllowedWebsiteUrl(plan.creative.destinationUrl)) {
+      errors.push("Geçerli bir Website URL girin");
+    }
+  }
+
+  if (
+    recipeRequiresPixel(plan.effectiveRecipeId) &&
+    !plan.adSet.promotedObject?.pixel_id &&
+    plan.pixelResolution.status === "missing_blocking"
+  ) {
     errors.push("Pixel eksik");
   }
+
   if (recipe?.requiredAssets.includes("instantForm") && !plan.adSet.promotedObject?.lead_gen_form_id) {
     errors.push("Meta form eksik");
   }
   if (recipe?.requiredAssets.includes("whatsapp") && plan.unresolvedFields.includes("whatsapp")) {
     errors.push("WhatsApp bağlantısı eksik");
   }
-  if (recipe?.requiredUserFields.includes("websiteUrl") && !plan.creative.destinationUrl?.trim()) {
-    errors.push("Website URL eksik");
-  }
 
   for (const field of plan.unresolvedFields) {
+    if (field === "pixel" && !recipeRequiresPixel(plan.effectiveRecipeId)) continue;
+    if (field === "destinationUrl" && recipeRequiresWebsiteUrl(plan.effectiveRecipeId)) continue;
     if (!errors.some((e) => e.toLowerCase().includes(field.toLowerCase()))) {
       errors.push(`Eksik alan: ${field}`);
     }
+  }
+
+  if (
+    recipeRequiresWebsiteUrl(plan.effectiveRecipeId) &&
+    plan.creative.destinationUrl &&
+    !plan.adSet.promotedObject?.pixel_id &&
+    plan.effectiveRecipeId !== "TRAFFIC_WEBSITE"
+  ) {
+    // website sales with pixel - ok
   }
 
   return { valid: errors.length === 0, errors };
@@ -266,28 +316,46 @@ export function questionnaireToCampaignDraft(
   plan: ResolvedCampaignPlan,
   imageHash: string,
 ) {
-  const location = answers.audience.locations[0] ?? answers.selectedAssets.location;
+  const primaryLocation = plan.audience.locations[0];
   const gender = answers.audience.genders[0] ?? "ALL";
+  const websiteUrl = plan.creative.destinationUrl ?? "";
 
   return {
-    recipeId: plan.recipeId,
+    recipeId: plan.effectiveRecipeId,
     campaignName: plan.campaign.name,
     dailyBudget: answers.dailyBudget,
     startDate: answers.startDate,
     endDate: answers.endDate,
     country: null,
     city: null,
-    metaCountryCode: location?.countryCode ?? null,
+    metaCountryCode: primaryLocation?.countryCode ?? null,
     metaCity: null,
     metaRegion: null,
-    selectedAssets: answers.selectedAssets,
-    ageMin: answers.audience.ageMin,
-    ageMax: answers.audience.ageMax,
+    selectedAssets: {
+      ...answers.selectedAssets,
+      location: primaryLocation
+        ? {
+            key: primaryLocation.key,
+            type: primaryLocation.type,
+            displayName: primaryLocation.displayName,
+            countryCode: primaryLocation.countryCode,
+          }
+        : answers.selectedAssets.location,
+      pixel:
+        recipeRequiresPixel(plan.effectiveRecipeId) && answers.selectedAssets.pixel?.id
+          ? answers.selectedAssets.pixel
+          : undefined,
+    },
+    audienceLocations: plan.audience.locations,
+    ageMin: plan.audience.ageMin,
+    ageMax: plan.audience.ageMax,
     gender,
-    websiteUrl: answers.creative.destinationUrl ?? "",
+    websiteUrl,
     pageId: answers.selectedAssets.page?.id ?? "",
     instagramActorId: answers.selectedAssets.instagram?.id,
-    pixelId: answers.selectedAssets.pixel?.id ?? "",
+    pixelId: recipeRequiresPixel(plan.effectiveRecipeId)
+      ? (answers.selectedAssets.pixel?.id ?? "")
+      : "",
     instantFormId: answers.selectedAssets.instantForm?.id,
     whatsappId: answers.selectedAssets.whatsapp?.id,
     catalogId: answers.selectedAssets.catalog?.id,

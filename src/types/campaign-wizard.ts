@@ -93,6 +93,7 @@ export type WebsiteSalesDraft = CampaignDraft;
 
 export type CampaignSubmit = Omit<CampaignDraft, "imageFile" | "goalAnswerId" | "specialAdCategoryAsked"> & {
   imageHash: string;
+  audienceLocations?: import("@/types/campaign-questionnaire").SelectedMetaLocation[];
 };
 
 /** @deprecated Use CampaignSubmit */

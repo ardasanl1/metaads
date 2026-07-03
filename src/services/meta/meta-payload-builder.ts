@@ -1,16 +1,21 @@
 import { getCampaignRecipe, type CampaignRecipeId } from "@/config/campaign-recipes";
 import type { CampaignSubmit } from "@/types/campaign-wizard";
-import type { SelectedMetaAssets } from "@/types/meta-assets";
+import { buildGeoLocationsFromAudience } from "@/utils/wizard-location";
+import { recipeRequiresPixel } from "@/utils/recipe-pixel";
 
-function buildGeoFromSelectedAssets(assets: SelectedMetaAssets): Record<string, unknown> | null {
-  const location = assets.location;
-  if (!location?.key) return null;
+function buildGeoFromDraft(draft: CampaignSubmit): Record<string, unknown> {
+  const audienceLocations = draft.audienceLocations ?? [];
+  if (audienceLocations.length > 0) {
+    return buildGeoLocationsFromAudience(audienceLocations);
+  }
+
+  const location = draft.selectedAssets.location;
+  if (!location?.key) return { countries: ["TR"] };
 
   if (location.type === "city") return { cities: [{ key: location.key }] };
   if (location.type === "region") return { regions: [{ key: location.key }] };
   if (location.type === "zip") return { zips: [{ key: location.key }] };
-  if (location.type === "country") return { countries: [location.countryCode.toUpperCase()] };
-  return null;
+  return { countries: [location.countryCode.toUpperCase()] };
 }
 
 export function buildTargetingFromSubmit(draft: CampaignSubmit): unknown {
@@ -20,26 +25,9 @@ export function buildTargetingFromSubmit(draft: CampaignSubmit): unknown {
   const targeting: Record<string, unknown> = {
     age_min: draft.ageMin,
     age_max: draft.ageMax,
+    geo_locations: buildGeoFromDraft(draft),
   };
   if (genders) targeting.genders = genders;
-
-  const geo = buildGeoFromSelectedAssets(draft.selectedAssets);
-  if (geo) {
-    targeting.geo_locations = geo;
-  } else if (draft.metaCity?.key) {
-    targeting.geo_locations = { cities: [{ key: draft.metaCity.key }] };
-  } else if (draft.metaRegion?.key) {
-    targeting.geo_locations = { regions: [{ key: draft.metaRegion.key }] };
-  } else {
-    targeting.geo_locations = {
-      countries: [
-        draft.selectedAssets.location?.countryCode?.toUpperCase() ??
-          draft.metaCountryCode ??
-          draft.country?.countryCode?.toUpperCase() ??
-          "TR",
-      ],
-    };
-  }
   return targeting;
 }
 
@@ -48,7 +36,7 @@ export function buildPromotedObject(recipeId: CampaignRecipeId, draft: CampaignS
   if (!recipe) throw new Error("Geçersiz recipe");
 
   const pageId = draft.selectedAssets.page?.id ?? draft.pageId;
-  const pixelId = draft.selectedAssets.pixel?.id ?? draft.pixelId;
+  const pixelId = recipeRequiresPixel(draft.recipeId!) ? draft.selectedAssets.pixel?.id ?? draft.pixelId : undefined;
   const formId = draft.selectedAssets.instantForm?.id ?? draft.instantFormId;
   const catalogId = draft.selectedAssets.catalog?.id ?? draft.catalogId;
   const appId = draft.selectedAssets.app?.id ?? draft.appId;
@@ -56,7 +44,7 @@ export function buildPromotedObject(recipeId: CampaignRecipeId, draft: CampaignS
   const promoted: Record<string, string> = {};
   if (recipe.promotedObjectKeys.includes("page_id") && pageId) promoted.page_id = pageId;
   if (recipe.promotedObjectKeys.includes("pixel_id") && pixelId) promoted.pixel_id = pixelId;
-  if (recipe.promotedObjectKeys.includes("custom_event_type") && recipe.conversionEvent) {
+  if (recipe.promotedObjectKeys.includes("custom_event_type") && recipe.conversionEvent && pixelId) {
     promoted.custom_event_type = recipe.conversionEvent;
   }
   if (recipe.promotedObjectKeys.includes("lead_gen_form_id") && formId) {

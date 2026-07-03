@@ -1,5 +1,7 @@
 import { getCampaignRecipe } from "@/config/campaign-recipes";
 import type { CampaignDraft, CampaignSubmit } from "@/types/campaign-wizard";
+import { recipeRequiresWebsiteUrl } from "@/utils/recipe-pixel";
+import { isAllowedWebsiteUrl } from "@/utils/url-normalize";
 
 export type WizardValidationErrors = Partial<Record<keyof CampaignDraft, string>> & {
   form?: string;
@@ -110,6 +112,14 @@ export function validateCampaignSubmit(input: CampaignSubmit): Record<string, st
   const errors: Record<string, string> = {};
   if (!input.imageHash?.trim()) errors.imageHash = "Görsel yüklenmedi (image hash yok)";
   if (!input.recipeId) errors.recipeId = "Recipe seçilmedi";
+  if (!input.websiteUrl?.trim() && recipeRequiresWebsiteUrl(input.recipeId ?? "")) {
+    errors.websiteUrl = "Website URL eksik";
+  }
+  if (input.websiteUrl?.trim() && recipeRequiresWebsiteUrl(input.recipeId ?? "")) {
+    if (!isAllowedWebsiteUrl(input.websiteUrl)) {
+      errors.websiteUrl = "Geçerli bir Website URL girin";
+    }
+  }
   return errors;
 }
 

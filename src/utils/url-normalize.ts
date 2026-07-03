@@ -61,3 +61,33 @@ export function isFacebookHostname(value?: string): boolean {
     return raw.includes("facebook.com") || raw.includes("fb.com");
   }
 }
+
+const BLOCKED_WEBSITE_HOSTS = [
+  "instagram.com",
+  "l.facebook.com",
+  "api.whatsapp.com",
+  "whatsapp.com",
+  "messenger.com",
+];
+
+export function isBlockedWebsiteUrl(value?: string): boolean {
+  if (!value?.trim()) return false;
+  if (isFacebookHostname(value)) return true;
+  try {
+    const normalized = normalizeWebsiteUrl(value);
+    if (!normalized) return false;
+    const host = new URL(normalized).hostname.toLowerCase();
+    return BLOCKED_WEBSITE_HOSTS.some(
+      (blocked) => host === blocked || host.endsWith(`.${blocked}`),
+    );
+  } catch {
+    const raw = value.trim().toLowerCase();
+    return BLOCKED_WEBSITE_HOSTS.some((blocked) => raw.includes(blocked));
+  }
+}
+
+export function isAllowedWebsiteUrl(value?: string): boolean {
+  if (!value?.trim()) return false;
+  if (isBlockedWebsiteUrl(value)) return false;
+  return normalizeWebsiteUrl(value) !== null;
+}

@@ -9,7 +9,6 @@ import type {
   CampaignQuestionnaireAnswers,
   ConversionDestinationId,
   DesiredResultId,
-  SelectedMetaLocation,
 } from "@/types/campaign-questionnaire";
 import type { WizardCreateStep, WizardGender, WizardSpecialAdCategory } from "@/types/campaign-wizard";
 import { useMetaAccount } from "@/hooks/use-meta-account";
@@ -19,7 +18,6 @@ import {
   buildSurveyFlow,
   BUSINESS_GOAL_OPTIONS,
   canProceedFromQuestion,
-  getDestinationLabel,
   resolveRecipeFromAnswers,
 } from "@/services/campaign-questionnaire-engine";
 import {
@@ -46,8 +44,11 @@ import { SectionCard } from "@/components/shared/SectionCard";
 import { WizardProgress, questionToProgressStep } from "@/components/campaign-wizard/WizardProgress";
 import { CompactTipsPanel } from "@/components/campaign-wizard/CompactTipsPanel";
 import { WizardFooter } from "@/components/campaign-wizard/WizardFooter";
+import { CampaignReviewSummary } from "@/components/campaigns/wizard/CampaignReviewSummary";
 import { MetaAssetsSection } from "@/components/campaign-wizard/MetaAssetsSection";
-import { isFacebookHostname } from "@/utils/url-normalize";
+import { isFacebookHostname, isAllowedWebsiteUrl, isBlockedWebsiteUrl, normalizeWebsiteUrl } from "@/utils/url-normalize";
+import { recipeRequiresWebsiteUrl } from "@/utils/recipe-pixel";
+import { metaLocationToSelected, selectedToMetaLocationOption } from "@/utils/wizard-location";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
@@ -98,6 +99,12 @@ export function CampaignSurveyFlow() {
   const q = flow[idx];
   const plan = useMemo(() => resolveCampaignPlan(answers), [answers]);
   const validation = useMemo(() => validateResolvedCampaignPlan(plan), [plan]);
+  const needsFallbackApproval = Boolean(
+    plan?.pixelResolution.status === "missing_fallback_available" &&
+      !answers.salesTrafficFallbackAccepted,
+  );
+  const canCreate =
+    Boolean(validation.valid && plan?.recipeEnabled && !needsFallbackApproval);
   const recipe = recipeId ? getCampaignRecipe(recipeId) : null;
 
   const snap = useAccountSnapshot({
@@ -118,6 +125,13 @@ export function CampaignSurveyFlow() {
   });
 
   useEffect(() => {
+    const loc = answers.audience.locations[0];
+    if (loc) {
+      setMetaLoc(selectedToMetaLocationOption(loc));
+    }
+  }, [answers.audience.locations]);
+
+  useEffect(() => {
     if (!accountProfile.discovery) return;
     setAnswers((a) => {
       const mergedAssets = accountProfile.applyToSelectedAssets(a.selectedAssets);
@@ -131,7 +145,11 @@ export function CampaignSurveyFlow() {
       return { ...a, selectedAssets: mergedAssets };
     });
     snap.setSelectedAssets((current) => accountProfile.applyToSelectedAssets(current));
-    if (accountProfile.defaultWebsiteUrl && !isFacebookHostname(accountProfile.defaultWebsiteUrl)) {
+    if (
+      accountProfile.defaultWebsiteUrl &&
+      !isFacebookHostname(accountProfile.defaultWebsiteUrl) &&
+      !isBlockedWebsiteUrl(accountProfile.defaultWebsiteUrl)
+    ) {
       setAnswers((a) => {
         if (a.creative.destinationUrl?.trim()) return a;
         return { ...a, creative: { ...a.creative, destinationUrl: accountProfile.defaultWebsiteUrl } };
@@ -186,11 +204,11 @@ export function CampaignSurveyFlow() {
           return;
         }
         if (
-          recipe &&
-          (recipe.requiredUserFields.includes("websiteUrl") || recipeId === "SALES_WEBSITE") &&
-          !answersForValidation.creative.destinationUrl?.trim()
+          recipeId &&
+          recipeRequiresWebsiteUrl(recipeId) &&
+          !isAllowedWebsiteUrl(answersForValidation.creative.destinationUrl)
         ) {
-          toast.error("Website URL alanını doldurun");
+          toast.error("Geçerli bir Website URL girin");
           return;
         }
       }
@@ -225,6 +243,16 @@ export function CampaignSurveyFlow() {
 
   const patch = (p: Partial<CampaignQuestionnaireAnswers>) => setAnswers((a) => ({ ...a, ...p }));
 
+  function patchWebsiteUrl(raw: string) {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      patch({ creative: { ...answers.creative, destinationUrl: "" } });
+      return;
+    }
+    const normalized = normalizeWebsiteUrl(trimmed);
+    patch({ creative: { ...answers.creative, destinationUrl: normalized ?? trimmed } });
+  }
+
   async function onImage(file: File | null) {
     if (!file) return;
     if (!ACCEPTED.includes(file.type) || file.size > MAX_IMAGE_BYTES) {
@@ -246,7 +274,12 @@ export function CampaignSurveyFlow() {
   }
 
   async function onCreate() {
-    if (!plan || !validation.valid) {
+    if (!plan) return;
+    if (needsFallbackApproval) {
+      toast.error("Devam etmek için trafik fallback planını onaylayın");
+      return;
+    }
+    if (!validation.valid) {
       toast.error(validation.errors[0] ?? "Plan eksik");
       return;
     }
@@ -292,7 +325,16 @@ export function CampaignSurveyFlow() {
         <div className="grid gap-2">
             {BUSINESS_GOAL_OPTIONS.map((o) => (
               <Button key={o.id} variant="outline" className="h-auto justify-start border-border/60 py-3 text-left font-normal shadow-none hover:bg-muted/50"
-                onClick={() => { patch({ businessGoal: o.id, conversionDestination: "", desiredResult: "", followUpAnswers: {} }); setIdx(1); }}>
+                onClick={() => {
+                  patch({
+                    businessGoal: o.id,
+                    conversionDestination: "",
+                    desiredResult: "",
+                    followUpAnswers: {},
+                    salesTrafficFallbackAccepted: false,
+                  });
+                  setIdx(1);
+                }}>
                 {o.label}
               </Button>
             ))}
@@ -340,13 +382,18 @@ export function CampaignSurveyFlow() {
       {q?.id === "audience" && (
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-            <MetaLocationAutocomplete label="Konum" placeholder="Konum ara" value={metaLoc}
+            <MetaLocationAutocomplete label="Hedef konum" placeholder="Şehir, bölge veya ülke ara" value={metaLoc}
               onSelect={(loc) => {
                 setMetaLoc(loc);
-                if (!loc) return patch({ audience: { ...answers.audience, locations: [] } });
-                const sel: SelectedMetaLocation = { key: loc.key, type: loc.type, displayName: loc.displayName, countryCode: loc.countryCode };
-                patch({ audience: { ...answers.audience, locations: [sel] } });
-                snap.setSelectedAssets((c) => ({ ...c, location: { key: loc.key, type: loc.type, displayName: loc.displayName, countryCode: loc.countryCode } }));
+                if (!loc) {
+                  return patch({ audience: { ...answers.audience, locations: [] } });
+                }
+                patch({
+                  audience: {
+                    ...answers.audience,
+                    locations: [metaLocationToSelected(loc)],
+                  },
+                });
               }}
               connectionId={activeConnectionId ?? undefined} minChars={2} />
             </div>
@@ -397,9 +444,7 @@ export function CampaignSurveyFlow() {
                   selectedAssets: { ...a.selectedAssets, pixel: { id, name } },
                 }));
               }}
-              onWebsiteChange={(url) => {
-                patch({ creative: { ...answers.creative, destinationUrl: url } });
-              }}
+              onWebsiteChange={patchWebsiteUrl}
               onSaveManual={async (manual) => {
                 await accountProfile.saveManual(manual);
                 if (manual.websiteUrl && !isFacebookHostname(manual.websiteUrl)) {
@@ -432,7 +477,7 @@ export function CampaignSurveyFlow() {
           <div className="space-y-4">
             {recipe?.requiredUserFields.includes("websiteUrl") && (
               <div className="space-y-1.5"><Label>Website URL</Label><Input type="url" placeholder="https://ornek.com/urun" value={answers.creative.destinationUrl ?? ""}
-                onChange={(e) => patch({ creative: { ...answers.creative, destinationUrl: e.target.value } })} /></div>
+                onChange={(e) => patchWebsiteUrl(e.target.value)} /></div>
             )}
             <div className="space-y-1.5">
               <Label>Görsel</Label>
@@ -470,16 +515,25 @@ export function CampaignSurveyFlow() {
 
       {q?.id === "review" && plan && (
           <div className="space-y-4">
-            {!plan.recipeEnabled && <p className="text-sm text-amber-700 dark:text-amber-300">Bu tür henüz aktif değil.</p>}
-            {validation.errors.map((e) => <p key={e} className="text-sm text-destructive">{e}</p>)}
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-4 text-sm grid gap-2 sm:grid-cols-2">
-              <div><span className="text-muted-foreground">Sonuç:</span> {recipe?.outcomeLabel}</div>
-              <div><span className="text-muted-foreground">Yer:</span> {answers.conversionDestination ? getDestinationLabel(answers.conversionDestination) : "—"}</div>
-              <div><span className="text-muted-foreground">Bütçe:</span> {answers.dailyBudget} TL</div>
-              <div><span className="text-muted-foreground">Konum:</span> {answers.audience.locations[0]?.displayName ?? "—"}</div>
-              <div><span className="text-muted-foreground">CTA:</span> {plan.creative.callToAction}</div>
-              <div><span className="text-muted-foreground">Durum:</span> Duraklatıldı</div>
-            </div>
+            <CampaignReviewSummary
+              plan={plan}
+              answers={answers}
+              pageName={answers.selectedAssets.page?.name ?? accountProfile.discovery?.profile.page?.name}
+              instagramLabel={
+                answers.selectedAssets.instagram?.username
+                  ? `@${answers.selectedAssets.instagram.username}`
+                  : accountProfile.discovery?.profile.instagram?.username
+                    ? `@${accountProfile.discovery.profile.instagram.username}`
+                    : undefined
+              }
+              validationErrors={validation.errors}
+              onAcceptFallback={() => patch({ salesTrafficFallbackAccepted: true })}
+              onRejectFallback={() => {
+                patch({ salesTrafficFallbackAccepted: false });
+                const assetsIdx = flow.findIndex((step) => step.id === "assets");
+                if (assetsIdx >= 0) setIdx(assetsIdx);
+              }}
+            />
             <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => setShowTech((v) => !v)}>
               {showTech ? "Teknik detayı gizle" : "Teknik detay"}
             </Button>
@@ -487,9 +541,11 @@ export function CampaignSurveyFlow() {
               <details open className="text-xs text-muted-foreground rounded-lg border border-border/60 p-3">
                 <summary className="cursor-pointer font-medium text-foreground">Teknik ayarlar</summary>
                 <div className="mt-2 space-y-1">
+                  <div>Recipe: {plan.effectiveRecipeId}</div>
                   <div>Objective: {plan.campaign.objective}</div>
                   <div>Optimization: {plan.adSet.optimizationGoal}</div>
                   <div>Billing: {plan.adSet.billingEvent}</div>
+                  <div>Targeting: {JSON.stringify(plan.adSet.targeting)}</div>
                 </div>
               </details>
             )}
@@ -514,7 +570,7 @@ export function CampaignSurveyFlow() {
           </Button>
         ) : (
           <Button
-            disabled={submitting || !validation.valid || !plan?.recipeEnabled}
+            disabled={submitting || !canCreate}
             onClick={() => void onCreate()}
           >
             {submitting ? "Oluşturuluyor..." : "Onayla ve Oluştur"}
