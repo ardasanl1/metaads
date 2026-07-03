@@ -18,6 +18,15 @@ export type CampaignRecipeId =
   | "AWARENESS_VIDEO"
   | "APP_INSTALL";
 
+/** Kullanıcıya gösterilen alias ID'ler (canonical'a çözülür) */
+export type CampaignRecipeAliasId =
+  | "LEADS_CALLS"
+  | "LEADS_INSTANT_FORM"
+  | "LEADS_WEBSITE"
+  | "MESSAGES_WHATSAPP"
+  | "MESSAGES_INSTAGRAM"
+  | "MESSAGES_MESSENGER";
+
 export type ConversionLocation =
   | "PHONE_CALL"
   | "ON_AD"
@@ -87,6 +96,9 @@ export type CampaignRecipe = {
   supportedCtas: WizardCtaChoice[];
   defaultCta: WizardCtaChoice;
   attributionWindow?: string;
+  performanceGoal: string;
+  enabled: boolean;
+  comingSoon?: boolean;
   defaults: {
     status: "PAUSED";
     buyingType: BuyingType;
@@ -96,10 +108,18 @@ export type CampaignRecipe = {
 const PAUSED_DEFAULTS = { status: "PAUSED" as const, buyingType: "AUCTION" as const };
 
 function recipe(
-  partial: Omit<CampaignRecipe, "defaults" | "autoFields"> & { autoFields?: string[] },
+  partial: Omit<CampaignRecipe, "defaults" | "autoFields" | "performanceGoal" | "enabled"> & {
+    autoFields?: string[];
+    performanceGoal?: string;
+    enabled?: boolean;
+    comingSoon?: boolean;
+  },
 ): CampaignRecipe {
   return {
     ...partial,
+    performanceGoal: partial.performanceGoal ?? partial.optimizationGoal,
+    enabled: partial.enabled ?? true,
+    comingSoon: partial.comingSoon,
     autoFields: partial.autoFields ?? [
       "objective",
       "conversionLocation",
@@ -593,14 +613,47 @@ export const CAMPAIGN_RECIPES: Record<CampaignRecipeId, CampaignRecipe> = {
     ],
     supportedCtas: ["INSTALL_MOBILE_APP", "USE_APP", "LEARN_MORE"],
     defaultCta: "INSTALL_MOBILE_APP",
+    enabled: true,
   }),
 };
+
+const RECIPE_ALIASES: Partial<Record<string, CampaignRecipeId>> = {
+  LEADS_CALLS: "LEAD_CALLS",
+  LEADS_INSTANT_FORM: "LEAD_INSTANT_FORM",
+  LEADS_WEBSITE: "LEAD_WEBSITE",
+  MESSAGES_WHATSAPP: "LEAD_WHATSAPP",
+  MESSAGES_INSTAGRAM: "LEAD_INSTAGRAM_MESSAGES",
+  MESSAGES_MESSENGER: "LEAD_MESSENGER",
+};
+
+// SALES_CATALOG: uçtan uca test bekliyor
+CAMPAIGN_RECIPES.SALES_CATALOG.enabled = false;
+CAMPAIGN_RECIPES.SALES_CATALOG.comingSoon = true;
 
 /** @deprecated Use SALES_WEBSITE */
 export const WEBSITE_SALES_RECIPE = CAMPAIGN_RECIPES.SALES_WEBSITE;
 
+export function normalizeRecipeId(recipeId: string): CampaignRecipeId | null {
+  const canonical = (RECIPE_ALIASES[recipeId] ?? recipeId) as CampaignRecipeId;
+  return CAMPAIGN_RECIPES[canonical] ? canonical : null;
+}
+
 export function getCampaignRecipe(recipeId: CampaignRecipeId | string): CampaignRecipe | null {
-  return CAMPAIGN_RECIPES[recipeId as CampaignRecipeId] ?? null;
+  const canonical = normalizeRecipeId(recipeId);
+  return canonical ? CAMPAIGN_RECIPES[canonical] : null;
+}
+
+export function isRecipeEnabled(recipeId: CampaignRecipeId | string): boolean {
+  const recipe = getCampaignRecipe(recipeId);
+  return Boolean(recipe?.enabled);
+}
+
+export function getEnabledRecipeIds(): CampaignRecipeId[] {
+  return ALL_RECIPE_IDS.filter((id) => CAMPAIGN_RECIPES[id]?.enabled);
+}
+
+export function getDisabledRecipeIds(): CampaignRecipeId[] {
+  return ALL_RECIPE_IDS.filter((id) => !CAMPAIGN_RECIPES[id]?.enabled);
 }
 
 export function getRecipeRequiredAssets(recipeId: CampaignRecipeId | string): MetaAssetKind[] {
