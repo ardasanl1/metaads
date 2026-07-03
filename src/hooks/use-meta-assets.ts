@@ -101,7 +101,9 @@ export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
       });
       if (requestId !== pagesRequestRef.current) return;
       setPages(nextPages);
-      setPagesHint(pageDiagnostics?.hint ?? "");
+      if (nextPages.length === 0) {
+        setPagesHint(pageDiagnostics?.reason ?? "");
+      }
       if (nextPages.length === 1) {
         setSelectedAssets((current) =>
           current.page
@@ -130,24 +132,23 @@ export function useMetaAssets(input: UseMetaAssetsInput): UseMetaAssetsResult {
       });
       if (requestId !== pixelsRequestRef.current) return;
       setPixels(nextPixels);
-      const available = nextPixels.filter((pixel) => pixel.available);
-      if (available.length === 0) {
-        setPixelsHint(pixelDiagnostics.detail ?? pixelDiagnostics.reason ?? "");
+      if (nextPixels.length === 0) {
+        setPixelsHint(pixelDiagnostics.reason ?? pixelDiagnostics.detail ?? "");
         setSelectedAssets((current) => {
           const next = { ...current };
           delete next.pixel;
           return next;
         });
-      } else if (available.length === 1) {
+      } else if (nextPixels.length === 1) {
         setSelectedAssets((current) =>
           current.pixel
             ? current
-            : { ...current, pixel: { id: available[0].id, name: available[0].name } },
+            : { ...current, pixel: { id: nextPixels[0].id, name: nextPixels[0].name } },
         );
       } else {
         setSelectedAssets((current) => {
           if (!current.pixel) return current;
-          const stillValid = available.some((pixel) => pixel.id === current.pixel?.id);
+          const stillValid = nextPixels.some((pixel) => pixel.id === current.pixel?.id);
           if (stillValid) return current;
           const next = { ...current };
           delete next.pixel;

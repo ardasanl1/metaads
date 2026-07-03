@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   if (!isAuthenticatedRequest(request)) {
     return unauthorizedResponse();
   }
+
   try {
     const connectionId = request.nextUrl.searchParams.get("connectionId")?.trim();
     const adAccountId = request.nextUrl.searchParams.get("adAccountId")?.trim();
@@ -21,15 +22,16 @@ export async function GET(request: NextRequest) {
     const result = await resolveAdAccountPixels({ connectionId, adAccountId });
 
     return NextResponse.json({
+      success: result.success,
       pixels: result.pixels,
-      diagnostics: {
-        requestSucceeded: result.success,
-        availableCount: result.pixels.length,
-        totalCount: result.pixels.length,
+      diagnostic: {
+        normalizedAdAccountId: result.diagnostic.normalizedAdAccountId,
+        adAccountAccessible: result.diagnostic.adAccountAccessible,
+        pixelRequestSucceeded: result.diagnostic.pixelRequestSucceeded,
+        resultCount: result.diagnostic.resultCount,
+        metaErrorCode: result.diagnostic.metaErrorCode,
+        metaErrorType: result.diagnostic.metaErrorType,
         reason: result.diagnostic.reason,
-        detail: result.diagnostic.metaErrorCode
-          ? `Meta error ${result.diagnostic.metaErrorCode}`
-          : undefined,
       },
     });
   } catch (error) {

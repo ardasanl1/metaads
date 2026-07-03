@@ -4,12 +4,11 @@ import { getCampaignRecipe, getRecipeRequiredAssets } from "@/config/campaign-re
 import { getMetaConnectionById } from "@/lib/db";
 import {
   ensureMetaBusinessId,
-  getFacebookPageOptions,
   getInstagramAccountsForPage,
-  getMetaAssetDiagnostics,
-  getPixelsForAdAccount,
   searchMetaLocationOptions,
 } from "@/lib/meta";
+import { resolveFacebookPages } from "@/lib/meta-page-resolver";
+import { resolveAdAccountPixels } from "@/lib/meta-pixel-resolver";
 import type {
   MetaAssetKind,
   MetaInstagramOption,
@@ -78,11 +77,6 @@ export async function resolveMetaAssets(
   const required = getRequiredAssets(input.recipeId);
   const connection = await getMetaConnectionById(input.connectionId);
   if (!connection) {
-    const diagnostics = await getMetaAssetDiagnostics({
-      connectionId: input.connectionId,
-      adAccountId: input.adAccountId,
-    });
-    diagnostics.adAccount.reason = "Meta bağlantısı bulunamadı";
     return {
       locations: [],
       pages: [],
@@ -93,7 +87,14 @@ export async function resolveMetaAssets(
       catalogs: [],
       productSets: [],
       apps: [],
-      diagnostics,
+      diagnostics: {
+        adAccount: { accessible: false, reason: "Meta bağlantısı bulunamadı" },
+        locations: { available: false },
+        pages: { requestSucceeded: false, count: 0, reason: "Meta bağlantısı bulunamadı" },
+        instagram: { requestSucceeded: false, count: 0 },
+        pixels: { requestSucceeded: false, count: 0, reason: "Meta bağlantısı bulunamadı" },
+        missingPermissions: [],
+      },
     };
   }
 
@@ -118,22 +119,30 @@ export async function resolveMetaAssets(
     );
   }
 
+  let pageDiagnosticReason: string | undefined;
+  let pixelDiagnosticReason: string | undefined;
+  let pageRequestSucceeded = false;
+  let pixelRequestSucceeded = false;
+
   if (required.includes("page") || required.includes("instagram")) {
-    const pageResult = await getFacebookPageOptions({
+    const pageResult = await resolveFacebookPages({
       connectionId: input.connectionId,
       adAccountId: input.adAccountId,
       businessId,
     });
     pages.push(...pageResult.pages);
+    pageRequestSucceeded = pageResult.success;
+    pageDiagnosticReason = pageResult.diagnostic.reason;
   }
 
   if (required.includes("pixel")) {
-    const pixelResult = await getPixelsForAdAccount({
+    const pixelResult = await resolveAdAccountPixels({
       connectionId: input.connectionId,
       adAccountId: input.adAccountId,
-      businessId,
     });
     pixels.push(...pixelResult.pixels);
+    pixelRequestSucceeded = pixelResult.success;
+    pixelDiagnosticReason = pixelResult.diagnostic.reason;
   }
 
   const pageIdForIg =
@@ -149,14 +158,28 @@ export async function resolveMetaAssets(
     instagramAccounts.push(...ig);
   }
 
-  const diagnostics = await getMetaAssetDiagnostics({
-    connectionId: input.connectionId,
-    businessId,
-    adAccountId: input.adAccountId,
-    pageId: pageIdForIg,
-    locationQuery: input.locationQuery,
-    countryCode: input.countryCode,
-  });
+  const diagnostics: ResolvedMetaAssets["diagnostics"] = {
+    adAccount: { accessible: true, normalizedId: input.adAccountId },
+    locations: {
+      available: locations.length > 0 || !input.locationQuery?.trim(),
+      reason: locations.length === 0 && input.locationQuery?.trim() ? "Konum bulunamadı" : undefined,
+    },
+    pages: {
+      requestSucceeded: pageRequestSucceeded,
+      count: pages.length,
+      reason: pages.length === 0 ? pageDiagnosticReason : undefined,
+    },
+    instagram: {
+      requestSucceeded: true,
+      count: instagramAccounts.length,
+    },
+    pixels: {
+      requestSucceeded: pixelRequestSucceeded,
+      count: pixels.length,
+      reason: pixels.length === 0 ? pixelDiagnosticReason : undefined,
+    },
+    missingPermissions: [],
+  };
 
   const autoSelected = autoSelectAssets({
     recipeId: input.recipeId,

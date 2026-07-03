@@ -13,14 +13,13 @@ import {
   getAdAccountInfo,
   getAppsForAdAccount,
   getCatalogsForAdAccount,
-  getFacebookPageOptions,
   getInstagramAccountsForPage,
   getLeadGenFormsForPage,
-  getPixelsForAdAccount,
   getProductSetsForCatalog,
   getWhatsAppAccountsForPage,
-  getMetaAssetDiagnostics,
 } from "@/lib/meta";
+import { resolveFacebookPages } from "@/lib/meta-page-resolver";
+import { resolveAdAccountPixels } from "@/lib/meta-pixel-resolver";
 import type { AccountSnapshot } from "@/types/meta-assets";
 import type {
   MetaAppOption,
@@ -132,25 +131,33 @@ export async function fetchAccountSnapshot(
     adAccount = await getAdAccountInfo(input.adAccountId, { connectionId: input.connectionId });
   }
 
+  let pageDiagnosticReason: string | undefined;
+  let pixelDiagnosticReason: string | undefined;
+  let pageRequestSucceeded = false;
+  let pixelRequestSucceeded = false;
+
   const needsPage = required.some((asset) =>
     ["page", "instagram", "instantForm", "whatsapp"].includes(asset),
   );
   if (needsPage) {
-    const pageResult = await getFacebookPageOptions({
+    const pageResult = await resolveFacebookPages({
       connectionId: input.connectionId,
       adAccountId: input.adAccountId,
       businessId,
     });
     pages.push(...pageResult.pages);
+    pageRequestSucceeded = pageResult.success;
+    pageDiagnosticReason = pageResult.diagnostic.reason;
   }
 
   if (required.includes("pixel")) {
-    const pixelResult = await getPixelsForAdAccount({
+    const pixelResult = await resolveAdAccountPixels({
       connectionId: input.connectionId,
       adAccountId: input.adAccountId,
-      businessId,
     });
     pixels.push(...pixelResult.pixels);
+    pixelRequestSucceeded = pixelResult.success;
+    pixelDiagnosticReason = pixelResult.diagnostic.reason;
   }
 
   const pageIdForBound =
@@ -205,12 +212,28 @@ export async function fetchAccountSnapshot(
     );
   }
 
-  const diagnostics = await getMetaAssetDiagnostics({
-    connectionId: input.connectionId,
-    businessId,
-    adAccountId: input.adAccountId,
-    pageId: pageIdForBound,
-  });
+  const diagnostics: AccountSnapshot["diagnostics"] = {
+    adAccount: {
+      accessible: Boolean(adAccount),
+      normalizedId: input.adAccountId,
+    },
+    locations: { available: true },
+    pages: {
+      requestSucceeded: pageRequestSucceeded,
+      count: pages.length,
+      reason: pages.length === 0 ? pageDiagnosticReason : undefined,
+    },
+    instagram: {
+      requestSucceeded: true,
+      count: instagramAccounts.length,
+    },
+    pixels: {
+      requestSucceeded: pixelRequestSucceeded,
+      count: pixels.length,
+      reason: pixels.length === 0 ? pixelDiagnosticReason : undefined,
+    },
+    missingPermissions: [],
+  };
 
   const snapshot: AccountSnapshot = {
     adAccount,

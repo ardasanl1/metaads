@@ -254,10 +254,13 @@ export function CampaignSurveyFlow() {
         <Card>
           <CardHeader><CardTitle>{q.title}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <Button size="sm" variant="outline" onClick={() => void snap.reload()}>Yenile</Button>
-            {recipe.requiredAssets.includes("page") && (
+            <Button size="sm" variant="outline" onClick={() => void snap.reload()} disabled={snap.loading}>Yenile</Button>
+            {snap.loading && <p className="text-sm text-muted-foreground">Varliklar yukleniyor...</p>}
+            {snap.error && <p className="text-sm text-destructive">{snap.error}</p>}
+            {recipe.requiredAssets.includes("page") && !snap.loading && (
+              snap.snapshot?.pages.length ? (
               <AssetPicker label="Facebook Page" value={answers.selectedAssets.page?.id ?? ""}
-                options={(snap.snapshot?.pages ?? []).map((p) => ({ id: p.id, label: formatPageOptionLabel(p) }))}
+                options={snap.snapshot.pages.map((p) => ({ id: p.id, label: formatPageOptionLabel(p) }))}
                 onChange={(id) => {
                   const page = snap.snapshot?.pages.find((p) => p.id === id);
                   snap.setSelectedAssets((c) => ({
@@ -266,14 +269,25 @@ export function CampaignSurveyFlow() {
                   }));
                   void snap.reloadPageBound(id, page ? formatPageOptionLabel(page) : undefined);
                 }} />
+              ) : (
+                <p className="text-sm text-destructive">
+                  {snap.snapshot?.diagnostics.pages.reason ?? "Facebook Page bulunamadi."}
+                </p>
+              )
             )}
-            {recipe.requiredAssets.includes("pixel") && (
+            {recipe.requiredAssets.includes("pixel") && !snap.loading && (
+              (snap.snapshot?.pixels ?? []).length ? (
               <AssetPicker label="Pixel" value={answers.selectedAssets.pixel?.id ?? ""}
-                options={(snap.snapshot?.pixels ?? []).filter((p) => p.available).map((p) => ({ id: p.id, label: p.name }))}
+                options={snap.snapshot!.pixels.map((p) => ({ id: p.id, label: p.name }))}
                 onChange={(id) => {
                   const p = snap.snapshot?.pixels.find((x) => x.id === id);
                   snap.setSelectedAssets((c) => ({ ...c, pixel: p ? { id: p.id, name: p.name } : undefined }));
                 }} />
+              ) : (
+                <p className="text-sm text-destructive">
+                  {snap.snapshot?.diagnostics.pixels.reason ?? "Pixel bulunamadi."}
+                </p>
+              )
             )}
             {recipe.requiredAssets.includes("instantForm") && (
               <AssetPicker label="Meta Form" value={answers.selectedAssets.instantForm?.id ?? ""}

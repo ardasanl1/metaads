@@ -21,7 +21,6 @@ import type {
   ResolvedMetaAssets,
 } from "@/types/meta-assets";
 import type {
-  MetaPagesDiagnostics,
   MetaPixel,
   MetaTargetingLocation,
   GoogleLocationSelection,
@@ -258,17 +257,39 @@ export async function uploadAdImage(file: File): Promise<{ imageHash: string }> 
   });
 }
 
-export async function fetchPages(params?: {
-  connectionId?: string;
+export async function fetchPages(params: {
+  connectionId: string;
   adAccountId?: string;
-}): Promise<{ pages: MetaPageOption[]; diagnostics?: MetaPagesDiagnostics }> {
-  const data = await apiFetch<{ pages: MetaPageOption[]; diagnostics?: MetaPagesDiagnostics }>(
-    `/api/meta/pages${buildQuery({
-      connectionId: params?.connectionId,
-      adAccountId: params?.adAccountId,
+  businessId?: string;
+}): Promise<{
+  pages: MetaPageOption[];
+  diagnostics?: {
+    requestSucceeded: boolean;
+    availableCount: number;
+    totalCount: number;
+    reason?: string;
+  };
+}> {
+  const data = await apiFetch<{
+    success: boolean;
+    pages: MetaPageOption[];
+    diagnostic?: { reason?: string };
+  }>(
+    `/api/meta/assets/pages${buildQuery({
+      connectionId: params.connectionId,
+      adAccountId: params.adAccountId,
+      businessId: params.businessId,
     })}`,
   );
-  return { pages: data.pages, diagnostics: data.diagnostics };
+  return {
+    pages: data.pages,
+    diagnostics: {
+      requestSucceeded: data.success,
+      availableCount: data.pages.length,
+      totalCount: data.pages.length,
+      reason: data.diagnostic?.reason,
+    },
+  };
 }
 
 export async function fetchInstagramAccounts(
@@ -285,24 +306,22 @@ export async function fetchInstagramAccounts(
   return data.accounts;
 }
 
-export async function fetchPixels(params?: {
-  connectionId?: string;
-  adAccountId?: string;
+export async function fetchPixels(params: {
+  connectionId: string;
+  adAccountId: string;
 }): Promise<MetaPixel[]> {
   const data = await fetchPixelsDetailed(params);
-  return data.pixels
-    .filter((pixel) => pixel.available)
-    .map((pixel) => ({
-      id: pixel.id,
-      name: pixel.name,
-      lastFiredTime: pixel.lastFiredTime,
-      isAvailable: true,
-    }));
+  return data.pixels.map((pixel) => ({
+    id: pixel.id,
+    name: pixel.name,
+    lastFiredTime: pixel.lastFiredTime,
+    isAvailable: true,
+  }));
 }
 
-export async function fetchPixelsDetailed(params?: {
-  connectionId?: string;
-  adAccountId?: string;
+export async function fetchPixelsDetailed(params: {
+  connectionId: string;
+  adAccountId: string;
 }): Promise<{
   pixels: MetaPixelOption[];
   diagnostics: {
@@ -314,21 +333,31 @@ export async function fetchPixelsDetailed(params?: {
   };
 }> {
   const data = await apiFetch<{
+    success: boolean;
     pixels: MetaPixelOption[];
-    diagnostics: {
-      requestSucceeded: boolean;
-      availableCount: number;
-      totalCount: number;
+    diagnostic: {
       reason?: string;
-      detail?: string;
+      metaErrorCode?: number;
+      resultCount: number;
     };
   }>(
-    `/api/meta/pixels${buildQuery({
-      connectionId: params?.connectionId,
-      adAccountId: params?.adAccountId,
+    `/api/meta/assets/pixels${buildQuery({
+      connectionId: params.connectionId,
+      adAccountId: params.adAccountId,
     })}`,
   );
-  return data;
+  return {
+    pixels: data.pixels,
+    diagnostics: {
+      requestSucceeded: data.success,
+      availableCount: data.pixels.length,
+      totalCount: data.pixels.length,
+      reason: data.diagnostic.reason,
+      detail: data.diagnostic.metaErrorCode
+        ? `Meta error ${data.diagnostic.metaErrorCode}`
+        : undefined,
+    },
+  };
 }
 
 export async function fetchMetaTargetingLocations(params: {

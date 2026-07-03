@@ -26,7 +26,11 @@ export type MetaPageOption = {
   name: string;
   username?: string;
   pictureUrl?: string;
+  tasks?: string[];
+  instagramBusinessAccountId?: string;
+  available?: boolean;
   source:
+    | "user_accounts"
     | "user"
     | "business_owned"
     | "business_client"

@@ -41,6 +41,8 @@ function graphBaseUrl(): string {
   return `https://graph.facebook.com/${getApiVersion()}`;
 }
 
+export { graphBaseUrl };
+
 async function parseMetaResponse<T>(response: Response): Promise<T> {
   const data = (await response.json()) as T & {
     error?: { message?: string; type?: string; code?: number };
@@ -1273,6 +1275,7 @@ export async function getFacebookPageOptions(input?: {
     business_client: 3,
     pending_client: 4,
     existing_creative: 5,
+    user_accounts: 6,
     user: 6,
   };
   const pages = Array.from(byId.values());
