@@ -118,11 +118,18 @@ export function CampaignSurveyFlow() {
   });
 
   useEffect(() => {
-    setAnswers((a) => ({ ...a, selectedAssets: snap.selectedAssets }));
-  }, [snap.selectedAssets]);
-
-  useEffect(() => {
     if (!accountProfile.discovery) return;
+    setAnswers((a) => {
+      const mergedAssets = accountProfile.applyToSelectedAssets(a.selectedAssets);
+      if (
+        mergedAssets.page?.id === a.selectedAssets.page?.id &&
+        mergedAssets.pixel?.id === a.selectedAssets.pixel?.id &&
+        mergedAssets.instagram?.id === a.selectedAssets.instagram?.id
+      ) {
+        return a;
+      }
+      return { ...a, selectedAssets: mergedAssets };
+    });
     snap.setSelectedAssets((current) => accountProfile.applyToSelectedAssets(current));
     if (accountProfile.defaultWebsiteUrl && !isFacebookHostname(accountProfile.defaultWebsiteUrl)) {
       setAnswers((a) => {
@@ -131,6 +138,22 @@ export function CampaignSurveyFlow() {
       });
     }
   }, [accountProfile.discovery, accountProfile.defaultWebsiteUrl, accountProfile.applyToSelectedAssets, snap.setSelectedAssets]);
+
+  useEffect(() => {
+    setAnswers((a) => {
+      const merged = { ...a.selectedAssets, ...snap.selectedAssets };
+      if (JSON.stringify(merged) === JSON.stringify(a.selectedAssets)) return a;
+      return { ...a, selectedAssets: merged };
+    });
+  }, [snap.selectedAssets]);
+
+  const answersForValidation = useMemo(() => {
+    if (!accountProfile.discovery) return answers;
+    return {
+      ...answers,
+      selectedAssets: accountProfile.applyToSelectedAssets(answers.selectedAssets),
+    };
+  }, [answers, accountProfile.discovery, accountProfile.applyToSelectedAssets]);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
@@ -142,11 +165,35 @@ export function CampaignSurveyFlow() {
     });
   }, [flow.length]);
 
-  const canProceed = q ? canProceedFromQuestion(q.id, answers) : false;
+  const canProceed = q ? canProceedFromQuestion(q.id, answersForValidation) : false;
 
   function goNext() {
     if (!q) return;
-    if (!canProceedFromQuestion(q.id, answers)) {
+    if (!canProceedFromQuestion(q.id, answersForValidation)) {
+      if (q.id === "assets") {
+        const recipe = recipeId ? getCampaignRecipe(recipeId) : null;
+        const assets = answersForValidation.selectedAssets;
+        if (recipe?.requiredAssets.includes("page") && !assets.page?.id) {
+          toast.error("Facebook Sayfası seçilmedi veya henüz yüklenmedi");
+          return;
+        }
+        if (
+          recipe?.requiredAssets.includes("pixel") &&
+          !assets.pixel?.id &&
+          recipeId !== "SALES_WEBSITE"
+        ) {
+          toast.error("Bu kampanya türü için Pixel gerekli");
+          return;
+        }
+        if (
+          recipe &&
+          (recipe.requiredUserFields.includes("websiteUrl") || recipeId === "SALES_WEBSITE") &&
+          !answersForValidation.creative.destinationUrl?.trim()
+        ) {
+          toast.error("Website URL alanını doldurun");
+          return;
+        }
+      }
       toast.error("Devam etmek için bu adımı tamamlayın");
       return;
     }
@@ -335,15 +382,20 @@ export function CampaignSurveyFlow() {
               selectedPixelName={answers.selectedAssets.pixel?.name}
               websiteUrl={answers.creative.destinationUrl ?? ""}
               onSelectPage={(id, name) => {
-                snap.setSelectedAssets((c) => ({
-                  ...c,
-                  page: { id, name },
-                  instagram: undefined,
+                const next = { page: { id, name }, instagram: undefined as undefined };
+                snap.setSelectedAssets((c) => ({ ...c, ...next }));
+                setAnswers((a) => ({
+                  ...a,
+                  selectedAssets: { ...a.selectedAssets, ...next },
                 }));
                 void snap.reloadPageBound(id, name);
               }}
               onSelectPixel={(id, name) => {
                 snap.setSelectedAssets((c) => ({ ...c, pixel: { id, name } }));
+                setAnswers((a) => ({
+                  ...a,
+                  selectedAssets: { ...a.selectedAssets, pixel: { id, name } },
+                }));
               }}
               onWebsiteChange={(url) => {
                 patch({ creative: { ...answers.creative, destinationUrl: url } });
