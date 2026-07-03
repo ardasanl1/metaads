@@ -112,8 +112,26 @@ export type SelectedMetaAssets = {
   instagram?: { id: string; username?: string; name?: string };
   pixel?: { id: string; name: string };
   instantForm?: { id: string; name: string };
+  whatsapp?: { id: string; name: string };
   catalog?: { id: string; name: string };
   productSet?: { id: string; name: string };
+  app?: { id: string; name: string };
+};
+
+export type AccountSnapshot = {
+  adAccount?: { id: string; name?: string; currency?: string };
+  pages: MetaPageOption[];
+  instagramAccounts: MetaInstagramOption[];
+  pixels: MetaPixelOption[];
+  instantForms: MetaInstantFormOption[];
+  whatsappAccounts: MetaWhatsAppOption[];
+  catalogs: MetaCatalogOption[];
+  productSets: MetaProductSetOption[];
+  apps: MetaAppOption[];
+  diagnostics: MetaAssetDiagnostics;
+  autoSelected?: SelectedMetaAssets;
+  cachedAt: string;
+  recipeId: string;
 };
 
 export type ResolveMetaAssetsInput = {

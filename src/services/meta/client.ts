@@ -433,15 +433,63 @@ export async function resolveMetaGeoLocation(params: {
   return data;
 }
 
-export async function runWebsiteSalesWizard(
-  payload: WebsiteSalesSubmit,
-): Promise<WizardCreateResult> {
-  const data = await apiFetch<{ result: WizardCreateResult }>("/api/meta/wizard/website-sales", {
+export async function fetchAccountSnapshot(params: {
+  connectionId: string;
+  businessId?: string;
+  adAccountId: string;
+  recipeId: string;
+  pageId?: string;
+  refresh?: boolean;
+}): Promise<import("@/types/meta-assets").AccountSnapshot> {
+  const data = await apiFetch<{ snapshot: import("@/types/meta-assets").AccountSnapshot }>(
+    `/api/meta/account-snapshot${buildQuery({
+      connectionId: params.connectionId,
+      businessId: params.businessId,
+      adAccountId: params.adAccountId,
+      recipeId: params.recipeId,
+      pageId: params.pageId,
+      refresh: params.refresh ? "1" : undefined,
+    })}`,
+  );
+  return data.snapshot;
+}
+
+export async function fetchPageBoundAssets(params: {
+  connectionId: string;
+  recipeId: string;
+  pageId: string;
+  pageName?: string;
+}): Promise<{
+  instagramAccounts: MetaInstagramOption[];
+  instantForms: import("@/types/meta-assets").MetaInstantFormOption[];
+  whatsappAccounts: import("@/types/meta-assets").MetaWhatsAppOption[];
+}> {
+  return apiFetch(
+    `/api/meta/page-bound-assets${buildQuery({
+      connectionId: params.connectionId,
+      recipeId: params.recipeId,
+      pageId: params.pageId,
+      pageName: params.pageName,
+    })}`,
+  );
+}
+
+export async function runRecipeWizard(payload: WebsiteSalesSubmit): Promise<WizardCreateResult> {
+  const data = await apiFetch<{ result: WizardCreateResult }>("/api/meta/wizard/create", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   return data.result;
+}
+
+export async function runWebsiteSalesWizard(
+  payload: WebsiteSalesSubmit,
+): Promise<WizardCreateResult> {
+  return runRecipeWizard({
+    ...payload,
+    recipeId: payload.recipeId ?? "SALES_WEBSITE",
+  });
 }
 
 export async function fetchAccountInsights(params?: InsightsParams): Promise<ParsedInsights> {

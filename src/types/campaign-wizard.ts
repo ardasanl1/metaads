@@ -1,3 +1,4 @@
+import type { CampaignRecipeId } from "@/config/campaign-recipes";
 import type { SelectedMetaAssets } from "@/types/meta-assets";
 
 export type WizardGender = "ALL" | "MALE" | "FEMALE";
@@ -6,7 +7,17 @@ export type WizardCtaChoice =
   | "SHOP_NOW"
   | "LEARN_MORE"
   | "SIGN_UP"
-  | "GET_OFFER";
+  | "GET_OFFER"
+  | "CALL_NOW"
+  | "APPLY_NOW"
+  | "GET_QUOTE"
+  | "WHATSAPP_MESSAGE"
+  | "SEND_MESSAGE"
+  | "MESSAGE_PAGE"
+  | "WATCH_MORE"
+  | "NO_BUTTON"
+  | "INSTALL_MOBILE_APP"
+  | "USE_APP";
 
 export type WizardSpecialAdCategory =
   | "NONE"
@@ -40,7 +51,9 @@ export type MetaTargetingLocation = {
   supportsRadius?: boolean;
 };
 
-export type WebsiteSalesDraft = {
+export type CampaignDraft = {
+  recipeId: CampaignRecipeId | null;
+  goalAnswerId?: string;
   campaignName: string;
   dailyBudget: number;
   startDate: string; // YYYY-MM-DD
@@ -60,6 +73,11 @@ export type WebsiteSalesDraft = {
   pageId: string;
   instagramActorId?: string;
   pixelId: string;
+  instantFormId?: string;
+  whatsappId?: string;
+  catalogId?: string;
+  productSetId?: string;
+  appId?: string;
 
   imageFile: File | null;
   primaryText: string;
@@ -67,13 +85,21 @@ export type WebsiteSalesDraft = {
   description?: string;
   cta: WizardCtaChoice;
   specialAdCategory: WizardSpecialAdCategory;
+  specialAdCategoryAsked: boolean;
 };
 
-export type WebsiteSalesSubmit = Omit<WebsiteSalesDraft, "imageFile"> & {
+/** @deprecated Use CampaignDraft */
+export type WebsiteSalesDraft = CampaignDraft;
+
+export type CampaignSubmit = Omit<CampaignDraft, "imageFile" | "goalAnswerId" | "specialAdCategoryAsked"> & {
   imageHash: string;
 };
 
+/** @deprecated Use CampaignSubmit */
+export type WebsiteSalesSubmit = CampaignSubmit;
+
 export type WizardStepId =
+  | "goal"
   | "campaign_budget"
   | "audience"
   | "meta_assets"

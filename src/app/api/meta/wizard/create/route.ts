@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
-import { handleApiError, jsonError } from "@/lib/api-utils";
+import { handleApiError } from "@/lib/api-utils";
 import { runRecipeWizard } from "@/services/meta/meta-creation-orchestrator";
 import { validateCampaignSubmit } from "@/utils/campaign-wizard-validation";
 import type { CampaignSubmit } from "@/types/campaign-wizard";
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     const submitErrors = validateCampaignSubmit(body);
     if (Object.keys(submitErrors).length > 0) {
       const first = Object.values(submitErrors).find(Boolean);
-      return jsonError(first ?? "Geçersiz istek", 400);
+      return NextResponse.json({ error: first ?? "Geçersiz istek" }, { status: 400 });
     }
 
     const result = await runRecipeWizard(body);
@@ -24,4 +24,3 @@ export async function POST(request: NextRequest) {
     return handleApiError(error);
   }
 }
-

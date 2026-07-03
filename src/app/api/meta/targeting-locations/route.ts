@@ -8,6 +8,11 @@ import {
   searchTargetingLocations,
 } from "@/lib/meta";
 import type { MetaTargetingLocationType } from "@/lib/meta";
+import {
+  buildLocationCacheKey,
+  getCachedLocationQuery,
+  setCachedLocationQuery,
+} from "@/lib/account-snapshot-cache";
 
 export async function GET(request: NextRequest) {
   if (!isAuthenticatedRequest(request)) {
@@ -78,6 +83,16 @@ export async function GET(request: NextRequest) {
     }
 
     if (!query) return jsonError("query gerekli", 400);
+    if (query.length < 2) return NextResponse.json({ locations: [] });
+
+    const cacheKey = buildLocationCacheKey({
+      connectionId: connectionId ?? "default",
+      query,
+      countryCode,
+    });
+    const cached = getCachedLocationQuery<ReturnType<typeof toMetaLocationOption>[]>(cacheKey);
+    if (cached) return NextResponse.json({ locations: cached });
+
     if (
       locationType &&
       locationType !== "country" &&
@@ -101,6 +116,7 @@ export async function GET(request: NextRequest) {
           connectionId,
         });
 
+    setCachedLocationQuery(cacheKey, locations);
     return NextResponse.json({ locations });
   } catch (error) {
     return handleApiError(error);

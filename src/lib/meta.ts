@@ -449,6 +449,7 @@ export type CreateAdSetInput = {
   optimizationGoal: string;
   targeting: unknown;
   promotedObject?: unknown;
+  destinationType?: string;
   startTime?: string;
   endTime?: string;
 };
@@ -474,6 +475,9 @@ export async function createAdSet(
 
   if (input.promotedObject) {
     body.promoted_object = JSON.stringify(input.promotedObject);
+  }
+  if (input.destinationType && input.destinationType !== "UNDEFINED") {
+    body.destination_type = input.destinationType;
   }
   if (input.startTime) {
     body.start_time = input.startTime;
@@ -517,7 +521,8 @@ export async function getAds(adSetId: string, query?: InsightsQuery): Promise<Ad
 export type CreateAdInput = {
   name: string;
   adSetId: string;
-  creativeId: string;
+  creativeId?: string;
+  inlineObjectStorySpec?: Record<string, unknown>;
   status?: "ACTIVE" | "PAUSED";
 };
 
@@ -530,11 +535,21 @@ export async function createAd(
     throw new MetaApiError("Reklam hesabı ID gerekli", 400);
   }
 
+  const creativePayload = input.inlineObjectStorySpec
+    ? { object_story_spec: input.inlineObjectStorySpec }
+    : input.creativeId
+      ? { creative_id: input.creativeId }
+      : null;
+
+  if (!creativePayload) {
+    throw new MetaApiError("Creative veya inline creative gerekli", 400);
+  }
+
   const body: Record<string, string> = {
     name: input.name.trim(),
     adset_id: input.adSetId,
     status: input.status ?? "PAUSED",
-    creative: JSON.stringify({ creative_id: input.creativeId }),
+    creative: JSON.stringify(creativePayload),
   };
 
   return metaRequest<{ id: string }>(`${accountPath}/ads`, { method: "POST", body });
@@ -570,12 +585,13 @@ export type CreateAdCreativeInput = {
   name: string;
   pageId: string;
   instagramActorId?: string;
-  websiteUrl: string;
+  websiteUrl?: string;
   imageHash: string;
   primaryText: string;
   headline: string;
   description?: string;
-  ctaType: "SHOP_NOW" | "LEARN_MORE" | "SIGN_UP" | "GET_OFFER";
+  ctaType: string;
+  leadGenFormId?: string;
 };
 
 export async function createAdCreative(
@@ -588,16 +604,17 @@ export async function createAdCreative(
   }
 
   const linkData: Record<string, unknown> = {
-    link: input.websiteUrl,
     message: input.primaryText,
     image_hash: input.imageHash,
     name: input.headline,
     call_to_action: {
       type: input.ctaType,
-      value: { link: input.websiteUrl },
+      value: input.websiteUrl ? { link: input.websiteUrl } : {},
     },
   };
+  if (input.websiteUrl) linkData.link = input.websiteUrl;
   if (input.description) linkData.description = input.description;
+  if (input.leadGenFormId) linkData.lead_gen_form_id = input.leadGenFormId;
 
   const objectStorySpec: Record<string, unknown> = {
     page_id: input.pageId,
@@ -1538,6 +1555,163 @@ export async function getInstagramAccountsForPage(
     if (error instanceof MetaApiError && error.message.includes("pages_read_engagement")) {
       return [];
     }
+    throw error;
+  }
+}
+
+export async function getAdAccountInfo(
+  adAccountId: string,
+  options?: { connectionId?: string },
+): Promise<{ id: string; name?: string; currency?: string }> {
+  const accountPath = normalizeAdAccountId(adAccountId);
+  if (!accountPath) {
+    throw new MetaApiError("Reklam hesabı ID gerekli", 400);
+  }
+  const result = await metaRequest<{ id: string; name?: string; currency?: string }>(
+    `${accountPath}?fields=id,name,currency`,
+    { connectionId: options?.connectionId },
+  );
+  return { id: result.id, name: result.name, currency: result.currency };
+}
+
+export type MetaInstantFormOption = { id: string; name: string };
+export type MetaWhatsAppOption = { id: string; name: string; pageId?: string };
+export type MetaCatalogOption = { id: string; name: string };
+export type MetaProductSetOption = { id: string; name: string; catalogId?: string };
+export type MetaAppOption = { id: string; name: string };
+
+export async function getLeadGenFormsForPage(
+  pageId: string,
+  options?: { connectionId?: string },
+): Promise<MetaInstantFormOption[]> {
+  try {
+    const token = await getStoredAccessToken(options?.connectionId);
+    const forms = await fetchPaged<{ id: string; name?: string }>(
+      `${pageId}/leadgen_forms?fields=id,name&limit=100`,
+      100,
+      token,
+    );
+    return forms.map((form) => ({ id: form.id, name: form.name?.trim() || `Form ${form.id}` }));
+  } catch (error) {
+    if (error instanceof MetaApiError) return [];
+    throw error;
+  }
+}
+
+export async function getWhatsAppAccountsForPage(
+  pageId: string,
+  options?: { connectionId?: string },
+): Promise<MetaWhatsAppOption[]> {
+  try {
+    const result = await metaRequest<{
+      whatsapp_number?: { id?: string; display_phone_number?: string };
+      page_whatsapp_number?: { id?: string; display_phone_number?: string };
+    }>(
+      `${pageId}?fields=whatsapp_number{id,display_phone_number},page_whatsapp_number{id,display_phone_number}`,
+      { connectionId: options?.connectionId },
+    );
+    const rows = [result.whatsapp_number, result.page_whatsapp_number].filter(Boolean) as Array<{
+      id?: string;
+      display_phone_number?: string;
+    }>;
+    return rows
+      .filter((row) => row.id)
+      .map((row) => ({
+        id: row.id!,
+        name: row.display_phone_number?.trim() || `WhatsApp ${row.id}`,
+        pageId,
+      }));
+  } catch (error) {
+    if (error instanceof MetaApiError) return [];
+    throw error;
+  }
+}
+
+export async function getCatalogsForAdAccount(input: {
+  connectionId?: string;
+  adAccountId: string;
+  businessId?: string;
+}): Promise<MetaCatalogOption[]> {
+  const catalogs: MetaCatalogOption[] = [];
+  const accountPath = normalizeAdAccountId(input.adAccountId);
+  const token = await getStoredAccessToken(input.connectionId);
+  if (accountPath) {
+    try {
+      const accountCatalogs = await fetchPaged<{ id: string; name?: string }>(
+        `${accountPath}/product_catalogs?fields=id,name&limit=100`,
+        100,
+        token,
+      );
+      catalogs.push(
+        ...accountCatalogs.map((catalog) => ({
+          id: catalog.id,
+          name: catalog.name?.trim() || `Katalog ${catalog.id}`,
+        })),
+      );
+    } catch {
+      // ignore
+    }
+  }
+  if (input.businessId?.trim()) {
+    try {
+      const businessCatalogs = await fetchPaged<{ id: string; name?: string }>(
+        `${input.businessId.trim()}/owned_product_catalogs?fields=id,name&limit=100`,
+        100,
+        token,
+      );
+      for (const catalog of businessCatalogs) {
+        if (!catalogs.some((item) => item.id === catalog.id)) {
+          catalogs.push({
+            id: catalog.id,
+            name: catalog.name?.trim() || `Katalog ${catalog.id}`,
+          });
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return catalogs;
+}
+
+export async function getProductSetsForCatalog(
+  catalogId: string,
+  options?: { connectionId?: string },
+): Promise<MetaProductSetOption[]> {
+  try {
+    const token = await getStoredAccessToken(options?.connectionId);
+    const sets = await fetchPaged<{ id: string; name?: string }>(
+      `${catalogId}/product_sets?fields=id,name&limit=100`,
+      100,
+      token,
+    );
+    return sets.map((set) => ({
+      id: set.id,
+      name: set.name?.trim() || `Ürün Seti ${set.id}`,
+      catalogId,
+    }));
+  } catch (error) {
+    if (error instanceof MetaApiError) return [];
+    throw error;
+  }
+}
+
+export async function getAppsForAdAccount(input: {
+  connectionId?: string;
+  adAccountId: string;
+}): Promise<MetaAppOption[]> {
+  const accountPath = normalizeAdAccountId(input.adAccountId);
+  if (!accountPath) return [];
+  try {
+    const token = await getStoredAccessToken(input.connectionId);
+    const apps = await fetchPaged<{ id: string; name?: string }>(
+      `${accountPath}/applications?fields=id,name&limit=100`,
+      100,
+      token,
+    );
+    return apps.map((app) => ({ id: app.id, name: app.name?.trim() || `Uygulama ${app.id}` }));
+  } catch (error) {
+    if (error instanceof MetaApiError) return [];
     throw error;
   }
 }

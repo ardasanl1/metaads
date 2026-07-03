@@ -1,6 +1,6 @@
 import "server-only";
 
-import { WEBSITE_SALES_RECIPE } from "@/config/campaign-recipes";
+import { getCampaignRecipe, getRecipeRequiredAssets } from "@/config/campaign-recipes";
 import { getMetaConnectionById } from "@/lib/db";
 import {
   ensureMetaBusinessId,
@@ -22,11 +22,14 @@ import type {
 } from "@/types/meta-assets";
 
 const RECIPE_REQUIRED_ASSETS: Record<string, MetaAssetKind[]> = {
+  SALES_WEBSITE: ["location", "page", "pixel"],
   website_sales: ["location", "page", "pixel"],
 };
 
 function getRequiredAssets(recipeId: string): MetaAssetKind[] {
-  return RECIPE_REQUIRED_ASSETS[recipeId] ?? [];
+  return getRecipeRequiredAssets(recipeId).length > 0
+    ? getRecipeRequiredAssets(recipeId)
+    : RECIPE_REQUIRED_ASSETS[recipeId] ?? [];
 }
 
 function autoSelectAssets(input: {
@@ -179,6 +182,6 @@ export async function resolveMetaAssets(
 }
 
 export function getRecipeConversionEvent(recipeId: string): string | null {
-  if (recipeId === WEBSITE_SALES_RECIPE.id) return WEBSITE_SALES_RECIPE.conversionEvent;
-  return null;
+  const recipe = getCampaignRecipe(recipeId);
+  return recipe?.conversionEvent ?? null;
 }
