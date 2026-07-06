@@ -10,7 +10,7 @@ import type {
   ConversionDestinationId,
   DesiredResultId,
 } from "@/types/campaign-questionnaire";
-import type { WizardCreateStep, WizardGender, WizardSpecialAdCategory } from "@/types/campaign-wizard";
+import type { CampaignCreationResult, WizardCreateStep, WizardGender, WizardSpecialAdCategory, WizardOrchestrationResume } from "@/types/campaign-wizard";
 import { useMetaAccount } from "@/hooks/use-meta-account";
 import { useAccountSnapshot } from "@/hooks/use-account-snapshot";
 import { useAdAccountProfile } from "@/hooks/use-ad-account-profile";
@@ -25,7 +25,7 @@ import {
   resolveCampaignPlan,
   validateResolvedCampaignPlan,
 } from "@/services/campaign-planner";
-import { runRecipeWizard, uploadAdImage } from "@/services/meta/client";
+import { createFullAdCampaignPlan, uploadAdImage } from "@/services/meta/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,6 +92,8 @@ export function CampaignSurveyFlow() {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [createStep, setCreateStep] = useState<WizardCreateStep | null>(null);
+  const [creationResult, setCreationResult] = useState<CampaignCreationResult | null>(null);
+  const [resume, setResume] = useState<WizardOrchestrationResume | null>(null);
   const [metaLoc, setMetaLoc] = useState<MetaLocationOption | null>(null);
 
   const recipeId = useMemo(() => resolveRecipeFromAnswers(answers), [answers]);
@@ -273,7 +275,7 @@ export function CampaignSurveyFlow() {
     }
   }
 
-  async function onCreate() {
+  async function onCreate(fromRetry = false) {
     if (!plan) return;
     if (needsFallbackApproval) {
       toast.error("Devam etmek için trafik fallback planını onaylayın");
@@ -287,10 +289,30 @@ export function CampaignSurveyFlow() {
     if (!hash) return toast.error("Gorsel yukleyin");
     setSubmitting(true);
     setCreateStep("create_campaign");
+    setCreationResult(null);
     try {
-      const result = await runRecipeWizard(questionnaireToCampaignDraft(answers, plan, hash));
-      if (!result.success) return toast.error(result.message);
-      toast.success(result.message);
+      const draft = {
+        ...questionnaireToCampaignDraft(answers, plan, hash),
+        ...(fromRetry && resume?.campaignId ? { resume } : {}),
+      };
+      const result = await createFullAdCampaignPlan(draft);
+      setCreationResult(result);
+
+      if (!result.success) {
+        if (result.campaignId) {
+          setResume({
+            campaignId: result.campaignId,
+            adSetId: result.adSetId,
+            creativeId: result.creativeId,
+            failedStep: result.failedStepLegacy ?? undefined,
+          });
+        }
+        toast.error(result.message);
+        return;
+      }
+
+      setResume(null);
+      toast.success("Reklam zinciri oluşturuldu (Campaign + Ad Set + Creative + Ad)");
       if (result.campaignId) router.push(`/campaigns/${result.campaignId}`);
     } finally {
       setSubmitting(false);
@@ -546,10 +568,61 @@ export function CampaignSurveyFlow() {
                   <div>Optimization: {plan.adSet.optimizationGoal}</div>
                   <div>Billing: {plan.adSet.billingEvent}</div>
                   <div>Targeting: {JSON.stringify(plan.adSet.targeting)}</div>
+                  {creationResult?.debug && (
+                    <>
+                      <div className="mt-2">Bütçe: {creationResult.debug.dailyBudgetUi} TRY → {creationResult.debug.dailyBudgetSent}</div>
+                      <div>Objective (oluşan): {creationResult.debug.campaignObjective}</div>
+                      {creationResult.debug.adSetPayload && (
+                        <div>Ad Set payload: {JSON.stringify(creationResult.debug.adSetPayload)}</div>
+                      )}
+                    </>
+                  )}
                 </div>
               </details>
             )}
             {createStep && <p className="text-sm text-muted-foreground">{CREATE_LABELS[createStep]}</p>}
+            {creationResult && (
+              <div className="rounded-lg border border-border/60 p-3 text-sm space-y-1">
+                <p className="font-medium text-foreground">Oluşturma durumu</p>
+                {creationResult.debug?.steps.map((step) => {
+                  const labels: Record<string, string> = {
+                    media_upload: "Medya",
+                    campaign: "Campaign",
+                    adset: "Ad Set",
+                    creative: "Creative",
+                    ad: "Ad",
+                  };
+                  const statusLabels: Record<string, string> = {
+                    success: "oluşturuldu",
+                    failed: "oluşturulamadı",
+                    skipped: "atlandı",
+                    not_started: "başlatılmadı",
+                  };
+                  return (
+                    <div key={step.step} className={step.status === "failed" ? "text-destructive" : "text-muted-foreground"}>
+                      {labels[step.step] ?? step.step}: {statusLabels[step.status] ?? step.status}
+                      {step.entityId ? ` (${step.entityId})` : ""}
+                    </div>
+                  );
+                })}
+                {creationResult.metaError && (
+                  <p className="text-destructive text-xs mt-2">
+                    Meta: {creationResult.metaError.userTitle ?? creationResult.metaError.message}
+                    {creationResult.metaError.subcode ? ` [${creationResult.metaError.code}/${creationResult.metaError.subcode}]` : ""}
+                  </p>
+                )}
+                {!creationResult.success && resume?.campaignId && (
+                  <div className="flex gap-2 pt-2">
+                    <Button size="sm" variant="outline" onClick={() => void onCreate(true)}>
+                      Kaldığı yerden devam et
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setResume(null)}>
+                      Yeni baştan
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
       )}
           </div>

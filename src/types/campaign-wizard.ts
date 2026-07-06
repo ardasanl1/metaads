@@ -131,15 +131,43 @@ export type WizardDebugStepInfo = {
   metaError?: WizardMetaError;
 };
 
-export type WizardCreationDebug = {
+export type CampaignCreationStep = "none" | "media" | "campaign" | "adset" | "creative" | "ad";
+
+export type CampaignCreationDebug = {
   effectiveRecipeId: string;
   baseRecipeId?: string;
   campaignObjective?: string;
   dailyBudgetUi?: number;
   dailyBudgetSent?: number;
+  currency?: string;
   targetingSent?: unknown;
+  campaignPayload?: Record<string, unknown>;
+  adSetPayload?: Record<string, unknown>;
+  creativePayload?: Record<string, unknown>;
+  adPayload?: Record<string, unknown>;
   steps: WizardDebugStepInfo[];
 };
+
+export type CampaignCreationResult = {
+  success: boolean;
+  completedStep: CampaignCreationStep;
+  failedStep?: CampaignCreationStep;
+  campaignId?: string;
+  adSetId?: string;
+  creativeId?: string;
+  adId?: string;
+  inlineCreativeUsed?: boolean;
+  effectiveRecipeId: string;
+  message: string;
+  metaError?: WizardMetaError;
+  debug?: CampaignCreationDebug;
+  /** @deprecated legacy wizard step id */
+  completedStepLegacy?: WizardCreateStep | null;
+  /** @deprecated legacy wizard step id */
+  failedStepLegacy?: WizardCreateStep | null;
+};
+
+export type WizardCreationDebug = CampaignCreationDebug;
 
 /** @deprecated Use CampaignSubmit */
 export type WebsiteSalesSubmit = CampaignSubmit;
@@ -159,19 +187,7 @@ export type WizardCreateStep =
   | "create_creative"
   | "create_ad";
 
-export type WizardCreateResult = {
-  success: boolean;
-  completedStep: WizardCreateStep | null;
-  failedStep: WizardCreateStep | null;
-  message: string;
-  campaignId?: string;
-  adSetId?: string;
-  creativeId?: string;
-  adId?: string;
-  effectiveRecipeId?: CampaignRecipeId;
-  metaError?: WizardMetaError;
-  debug?: WizardCreationDebug;
-};
+export type WizardCreateResult = CampaignCreationResult;
 
 export type MetaPage = { id: string; name: string; pictureUrl?: string; source?: string };
 

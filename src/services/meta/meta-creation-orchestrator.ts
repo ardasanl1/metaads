@@ -3,9 +3,9 @@ import { getMetaConnection } from "@/lib/db";
 import { MetaApiError, createAd, createAdCreative, createAdSet, createCampaign, getCampaign } from "@/lib/meta";
 import type { CampaignRecipeId } from "@/config/campaign-recipes";
 import type {
+  CampaignCreationResult,
+  CampaignCreationStep,
   CampaignSubmit,
-  WizardCreateResult,
-  WizardCreateStep,
   WizardCreationDebug,
   WizardDebugStepInfo,
   WizardMetaError,
@@ -15,11 +15,9 @@ import {
   buildAdSetPayload,
   buildCampaignPayload,
   buildCreativePayload,
-  buildObjectStorySpec,
 } from "@/services/meta/meta-payload-builder";
-import { validateDailyBudget } from "@/utils/meta-budget";
+import { validateCampaignSubmitForCreation } from "@/utils/campaign-wizard-validation";
 
-const USE_INLINE_CREATIVE = process.env.META_INLINE_CREATIVE !== "false";
 const IS_DEV = process.env.NODE_ENV !== "production";
 
 type PartialIds = {
@@ -30,63 +28,55 @@ type PartialIds = {
 };
 
 export type WizardDebugStep = WizardDebugStepInfo;
-
 export type { WizardCreationDebug };
 
-function stepResult(
+function legacyStep(step: CampaignCreationStep): CampaignCreationResult["completedStepLegacy"] {
+  const map: Record<CampaignCreationStep, CampaignCreationResult["completedStepLegacy"]> = {
+    none: null,
+    media: "upload_image",
+    campaign: "create_campaign",
+    adset: "create_adset",
+    creative: "create_creative",
+    ad: "create_ad",
+  };
+  return map[step];
+}
+
+function buildResult(
   partial: PartialIds,
-  completedStep: WizardCreateStep | null,
-  failedStep: WizardCreateStep | null,
+  completedStep: CampaignCreationStep,
+  failedStep: CampaignCreationStep | undefined,
   message: string,
   success: boolean,
+  effectiveRecipeId: CampaignRecipeId,
   extra?: {
     metaError?: WizardMetaError;
     debug?: WizardCreationDebug;
-    effectiveRecipeId?: CampaignRecipeId;
+    inlineCreativeUsed?: boolean;
   },
-): WizardCreateResult {
+): CampaignCreationResult {
   return {
     success,
     completedStep,
     failedStep,
     message,
+    effectiveRecipeId,
     ...partial,
+    inlineCreativeUsed: extra?.inlineCreativeUsed,
     metaError: extra?.metaError,
     debug: IS_DEV ? extra?.debug : undefined,
-    effectiveRecipeId: extra?.effectiveRecipeId,
+    completedStepLegacy: legacyStep(completedStep),
+    failedStepLegacy: failedStep ? legacyStep(failedStep) : undefined,
   };
 }
 
-function nextFailedStep(completed: WizardCreateStep | null): WizardCreateStep {
-  const order: WizardCreateStep[] = [
-    "upload_image",
-    "create_campaign",
-    "create_adset",
-    "create_creative",
-    "create_ad",
-  ];
-  if (!completed) return "upload_image";
-  const idx = order.indexOf(completed);
-  return order[Math.min(idx + 1, order.length - 1)] ?? "create_ad";
-}
-
-function failedStepLabel(step: WizardCreateStep): string {
-  switch (step) {
-    case "upload_image":
-      return "görsel yükleme";
-    case "create_campaign":
-      return "kampanya oluşturma";
-    case "create_adset":
-      return "reklam seti oluşturma";
-    case "create_creative":
-      return "creative oluşturma";
-    case "create_ad":
-      return "reklam oluşturma";
-  }
-}
-
-function resolveEffectiveRecipeId(draft: CampaignSubmit): CampaignRecipeId {
-  return (draft.effectiveRecipeId ?? draft.recipeId)!;
+function isFullySuccessful(
+  partial: PartialIds,
+  inlineCreativeUsed: boolean,
+): boolean {
+  if (!partial.campaignId || !partial.adSetId || !partial.adId) return false;
+  if (!inlineCreativeUsed && !partial.creativeId) return false;
+  return true;
 }
 
 function metaErrorFromCaught(error: unknown): WizardMetaError | undefined {
@@ -96,46 +86,113 @@ function metaErrorFromCaught(error: unknown): WizardMetaError | undefined {
   return undefined;
 }
 
-function pushDebugStep(debug: WizardCreationDebug, step: WizardDebugStep): void {
+function pushDebugStep(debug: WizardCreationDebug, step: WizardDebugStepInfo): void {
   const idx = debug.steps.findIndex((s) => s.step === step.step);
   if (idx >= 0) debug.steps[idx] = step;
   else debug.steps.push(step);
 }
 
-export function getCreationPostCount(useInlineCreative: boolean): number {
-  return useInlineCreative ? 3 : 4;
+function stepStatusLabel(step: CampaignCreationStep, status: "success" | "failed" | "skipped" | "not_started"): string {
+  const names: Record<CampaignCreationStep, string> = {
+    none: "Başlatılmadı",
+    media: "Medya yükleme",
+    campaign: "Campaign",
+    adset: "Ad Set",
+    creative: "Creative",
+    ad: "Ad",
+  };
+  const statusText =
+    status === "success"
+      ? "oluşturuldu"
+      : status === "failed"
+        ? "oluşturulamadı"
+        : status === "skipped"
+          ? "atlandı"
+          : "başlatılmadı";
+  return `${names[step]} ${statusText}`;
 }
 
-export async function runRecipeWizard(draft: CampaignSubmit): Promise<WizardCreateResult> {
+export function buildCreationStatusSummary(
+  result: CampaignCreationResult,
+): string[] {
+  const lines: string[] = [];
+  const debug = result.debug;
+  if (!debug) {
+    lines.push(result.message);
+    return lines;
+  }
+
+  for (const step of debug.steps) {
+    const map: Record<WizardDebugStepInfo["step"], CampaignCreationStep> = {
+      media_upload: "media",
+      campaign: "campaign",
+      adset: "adset",
+      creative: "creative",
+      ad: "ad",
+    };
+    const label = stepStatusLabel(map[step.step], step.status);
+    if (step.entityId) lines.push(`${label} (ID: ${step.entityId})`);
+    else lines.push(label);
+  }
+  return lines;
+}
+
+function partialFailureMessage(
+  failedStep: CampaignCreationStep,
+  partial: PartialIds,
+  detail: string,
+): string {
+  if (failedStep === "adset" && partial.campaignId) {
+    return `Campaign oluşturuldu ancak Ad Set oluşturulamadı. Oluşturulan Campaign PAUSED durumda kaldı. ${detail}`;
+  }
+  if (failedStep === "creative" && partial.campaignId && partial.adSetId) {
+    return `Campaign ve Ad Set oluşturuldu ancak Creative oluşturulamadı. ${detail}`;
+  }
+  if (failedStep === "ad" && partial.campaignId && partial.adSetId) {
+    return `Campaign ve Ad Set oluşturuldu ancak Ad oluşturulamadı. ${detail}`;
+  }
+  return `Oluşturma ${failedStep} adımında başarısız oldu. ${detail}`;
+}
+
+export function getCreationPostCount(): number {
+  return 4;
+}
+
+/**
+ * Campaign + Ad Set + Creative + Ad zincirini uçtan uca oluşturur.
+ * Yalnızca campaignId varsa success=false döner.
+ */
+export async function createFullAdCampaignPlan(
+  draft: CampaignSubmit,
+): Promise<CampaignCreationResult> {
   const connection = await getMetaConnection();
   if (!connection?.selectedAdAccountId) {
-    return stepResult({}, null, "create_campaign", "Reklam hesabı seçilmedi", false);
+    return buildResult({}, "none", "campaign", "Reklam hesabı seçilmedi", false, draft.effectiveRecipeId ?? "TRAFFIC_WEBSITE");
   }
 
-  if (!draft.effectiveRecipeId) {
-    return stepResult({}, null, "create_campaign", "effectiveRecipeId gerekli", false);
+  const precheck = validateCampaignSubmitForCreation(draft, connection.selectedAdAccountId);
+  if (!precheck.valid) {
+    return buildResult(
+      {},
+      "none",
+      "media",
+      precheck.errors[0] ?? "Plan doğrulaması başarısız",
+      false,
+      draft.effectiveRecipeId ?? "TRAFFIC_WEBSITE",
+    );
   }
 
-  const effectiveRecipeId = resolveEffectiveRecipeId(draft);
-  const recipe = getCampaignRecipe(effectiveRecipeId);
-  if (!recipe) {
-    return stepResult({}, null, "create_campaign", "Geçersiz recipe", false);
-  }
-
-  const budgetCheck = validateDailyBudget({ amount: draft.dailyBudget, currency: "TRY" });
-  if (!budgetCheck.valid) {
-    return stepResult({}, null, "create_campaign", budgetCheck.message ?? "Bütçe geçersiz", false, {
-      effectiveRecipeId,
-    });
-  }
+  const effectiveRecipeId = draft.effectiveRecipeId!;
+  const recipe = getCampaignRecipe(effectiveRecipeId)!;
 
   const partial: PartialIds = {};
-  let completed: WizardCreateStep | null = null;
+  let completedStep: CampaignCreationStep = "none";
 
   const debug: WizardCreationDebug = {
     effectiveRecipeId,
     baseRecipeId: draft.baseRecipeId,
     dailyBudgetUi: draft.dailyBudget,
+    currency: "TRY",
     steps: [
       { step: "media_upload", status: "not_started" },
       { step: "campaign", status: "not_started" },
@@ -151,25 +208,68 @@ export async function runRecipeWizard(draft: CampaignSubmit): Promise<WizardCrea
     effectiveRecipeId,
   };
 
-  try {
-    if (!draft.imageHash?.trim()) {
-      pushDebugStep(debug, { step: "media_upload", status: "failed" });
-      return stepResult(
-        partial,
-        completed,
-        "upload_image",
-        "Görsel yüklenmedi (hash yok)",
-        false,
-        { debug, effectiveRecipeId },
-      );
+  const fail = (
+    failedStep: CampaignCreationStep,
+    message: string,
+    metaError?: WizardMetaError,
+    failedDebugStep?: WizardDebugStepInfo["step"],
+  ): CampaignCreationResult => {
+    if (failedDebugStep) {
+      pushDebugStep(debug, {
+        step: failedDebugStep,
+        status: "failed",
+        recipeId: effectiveRecipeId,
+        metaError,
+        sanitizedPayload:
+          failedDebugStep === "adset"
+            ? debug.adSetPayload
+            : failedDebugStep === "campaign"
+              ? debug.campaignPayload
+              : failedDebugStep === "creative"
+                ? debug.creativePayload
+                : failedDebugStep === "ad"
+                  ? debug.adPayload
+                  : undefined,
+      });
     }
-    pushDebugStep(debug, { step: "media_upload", status: "success" });
-    completed = "upload_image";
+    if (failedStep === "creative" || failedStep === "ad") {
+      const creativeIdx = debug.steps.findIndex((s) => s.step === "creative");
+      if (creativeIdx >= 0 && debug.steps[creativeIdx].status === "not_started") {
+        pushDebugStep(debug, { step: "creative", status: "not_started" });
+      }
+      if (failedStep === "ad") {
+        pushDebugStep(debug, { step: "ad", status: "not_started" });
+      }
+    }
+    return buildResult(
+      partial,
+      completedStep,
+      failedStep,
+      message,
+      false,
+      effectiveRecipeId,
+      { metaError: metaError ? { ...metaError, step: failedDebugStep } : undefined, debug },
+    );
+  };
 
+  try {
+    // 1. Medya
+    if (!draft.imageHash?.trim()) {
+      return fail("media", "Görsel yüklenmedi (hash yok)", undefined, "media_upload");
+    }
+    pushDebugStep(debug, {
+      step: "media_upload",
+      status: "success",
+      sanitizedPayload: { image_hash: draft.imageHash },
+    });
+    completedStep = "media";
+
+    // 2. Campaign
     let campaignId = draft.resume?.campaignId;
+    const campaignPayload = buildCampaignPayload(draftWithRecipe);
+    debug.campaignPayload = campaignPayload as unknown as Record<string, unknown>;
 
     if (!campaignId) {
-      const campaignPayload = buildCampaignPayload(draftWithRecipe);
       const createdCampaign = await createCampaign(connection.selectedAdAccountId, {
         name: campaignPayload.name,
         objective: campaignPayload.objective,
@@ -184,7 +284,7 @@ export async function runRecipeWizard(draft: CampaignSubmit): Promise<WizardCrea
         status: "success",
         entityId: campaignId,
         recipeId: effectiveRecipeId,
-        sanitizedPayload: campaignPayload as unknown as Record<string, unknown>,
+        sanitizedPayload: debug.campaignPayload,
       });
     } else {
       pushDebugStep(debug, {
@@ -192,11 +292,12 @@ export async function runRecipeWizard(draft: CampaignSubmit): Promise<WizardCrea
         status: "skipped",
         entityId: campaignId,
         recipeId: effectiveRecipeId,
+        sanitizedPayload: debug.campaignPayload,
       });
     }
 
     partial.campaignId = campaignId;
-    completed = "create_campaign";
+    completedStep = "campaign";
 
     const campaignRecord = await getCampaign(campaignId);
     if (!campaignRecord) {
@@ -205,28 +306,27 @@ export async function runRecipeWizard(draft: CampaignSubmit): Promise<WizardCrea
     debug.campaignObjective = campaignRecord.objective;
 
     if (campaignRecord.objective !== recipe.objective) {
-      return stepResult(
-        partial,
-        completed,
-        "create_adset",
-        `Kampanya objective uyumsuz: beklenen ${recipe.objective}, oluşan ${campaignRecord.objective}. Yeni plan onayı gerekir.`,
-        false,
-        { debug, effectiveRecipeId },
+      return fail(
+        "adset",
+        `Campaign objective ile ad set recipe uyumsuz: beklenen ${recipe.objective}, oluşan ${campaignRecord.objective}. Yeni plan onayı gerekir.`,
+        undefined,
+        "adset",
       );
     }
 
+    // 3. Ad Set
     let adSetId = draft.resume?.adSetId;
+    const adsetPayload = buildAdSetPayload(draftWithRecipe, campaignId);
+    debug.adSetPayload = adsetPayload as unknown as Record<string, unknown>;
+    debug.dailyBudgetSent = adsetPayload.daily_budget;
+    debug.targetingSent = adsetPayload.targeting;
 
     if (!adSetId) {
-      const adsetPayload = buildAdSetPayload(draftWithRecipe, campaignId);
-      debug.dailyBudgetSent = adsetPayload.daily_budget;
-      debug.targetingSent = adsetPayload.targeting;
-
       pushDebugStep(debug, {
         step: "adset",
         status: "not_started",
         recipeId: effectiveRecipeId,
-        sanitizedPayload: adsetPayload as unknown as Record<string, unknown>,
+        sanitizedPayload: debug.adSetPayload,
       });
 
       const createdAdSet = await createAdSet(connection.selectedAdAccountId, adsetPayload);
@@ -236,7 +336,7 @@ export async function runRecipeWizard(draft: CampaignSubmit): Promise<WizardCrea
         status: "success",
         entityId: adSetId,
         recipeId: effectiveRecipeId,
-        sanitizedPayload: adsetPayload as unknown as Record<string, unknown>,
+        sanitizedPayload: debug.adSetPayload,
       });
     } else {
       pushDebugStep(debug, {
@@ -244,144 +344,135 @@ export async function runRecipeWizard(draft: CampaignSubmit): Promise<WizardCrea
         status: "skipped",
         entityId: adSetId,
         recipeId: effectiveRecipeId,
+        sanitizedPayload: debug.adSetPayload,
       });
     }
 
     partial.adSetId = adSetId;
-    completed = "create_adset";
+    completedStep = "adset";
 
-    if (!draft.selectedAssets.page?.id && !draft.pageId?.trim()) {
-      throw new MetaApiError("Facebook Page ID eksik", 400);
-    }
-    if (!draft.websiteUrl?.trim() && effectiveRecipeId === "TRAFFIC_WEBSITE") {
-      throw new MetaApiError("Website URL eksik", 400);
-    }
+    // 4. Creative (ayrı adım — inline creative kullanılmaz)
+    let creativeId = draft.resume?.creativeId;
+    const creativePayload = buildCreativePayload(draftWithRecipe);
+    debug.creativePayload = creativePayload as unknown as Record<string, unknown>;
 
-    let creativeId: string | undefined = draft.resume?.creativeId;
-
-    if (USE_INLINE_CREATIVE) {
-      pushDebugStep(debug, { step: "creative", status: "skipped", recipeId: effectiveRecipeId });
-      completed = "create_creative";
-
-      const createdAd = await createAd(connection.selectedAdAccountId, {
-        name: buildAdPayload(draftWithRecipe, adSetId).name,
-        adSetId,
-        inlineObjectStorySpec: buildObjectStorySpec(draftWithRecipe),
-        status: "PAUSED",
-      });
-      partial.adId = createdAd.id;
+    if (!creativeId) {
+      const createdCreative = await createAdCreative(
+        connection.selectedAdAccountId,
+        creativePayload,
+      );
+      creativeId = createdCreative.id;
       pushDebugStep(debug, {
-        step: "ad",
+        step: "creative",
         status: "success",
-        entityId: createdAd.id,
+        entityId: creativeId,
         recipeId: effectiveRecipeId,
+        sanitizedPayload: debug.creativePayload,
       });
-      completed = "create_ad";
     } else {
-      if (!creativeId) {
-        const creativePayload = buildCreativePayload(draftWithRecipe);
-        const createdCreative = await createAdCreative(
-          connection.selectedAdAccountId,
-          creativePayload,
-        );
-        creativeId = createdCreative.id;
-        pushDebugStep(debug, {
-          step: "creative",
-          status: "success",
-          entityId: creativeId,
-          recipeId: effectiveRecipeId,
-        });
-      } else {
-        pushDebugStep(debug, {
-          step: "creative",
-          status: "skipped",
-          entityId: creativeId,
-          recipeId: effectiveRecipeId,
-        });
-      }
-      partial.creativeId = creativeId;
-      completed = "create_creative";
-
-      const adPayload = buildAdPayload(draftWithRecipe, adSetId, creativeId);
-      const createdAd = await createAd(connection.selectedAdAccountId, {
-        name: adPayload.name,
-        adSetId: adPayload.adSetId,
-        creativeId: adPayload.creativeId,
-        status: adPayload.status,
-      });
-      partial.adId = createdAd.id;
       pushDebugStep(debug, {
-        step: "ad",
-        status: "success",
-        entityId: createdAd.id,
+        step: "creative",
+        status: "skipped",
+        entityId: creativeId,
         recipeId: effectiveRecipeId,
+        sanitizedPayload: debug.creativePayload,
       });
-      completed = "create_ad";
     }
 
-    return stepResult(
+    partial.creativeId = creativeId;
+    completedStep = "creative";
+
+    // 5. Ad
+    const adPayload = buildAdPayload(draftWithRecipe, adSetId, creativeId);
+    debug.adPayload = adPayload as unknown as Record<string, unknown>;
+
+    const createdAd = await createAd(connection.selectedAdAccountId, {
+      name: adPayload.name,
+      adSetId: adPayload.adSetId,
+      creativeId: adPayload.creativeId,
+      status: adPayload.status,
+    });
+    partial.adId = createdAd.id;
+    pushDebugStep(debug, {
+      step: "ad",
+      status: "success",
+      entityId: createdAd.id,
+      recipeId: effectiveRecipeId,
+      sanitizedPayload: debug.adPayload,
+    });
+    completedStep = "ad";
+
+    const success = isFullySuccessful(partial, false);
+    if (!success) {
+      return buildResult(
+        partial,
+        completedStep,
+        "ad",
+        "Oluşturma tamamlanamadı: eksik entity ID",
+        false,
+        effectiveRecipeId,
+        { debug },
+      );
+    }
+
+    return buildResult(
       partial,
-      completed,
-      null,
-      `Reklam oluşturuldu (${effectiveRecipeId}). Tüm varlıklar PAUSED olarak oluşturuldu.`,
+      "ad",
+      undefined,
+      `Tam reklam zinciri oluşturuldu (${effectiveRecipeId}). Campaign, Ad Set, Creative ve Ad PAUSED durumda.`,
       true,
-      { debug, effectiveRecipeId },
+      effectiveRecipeId,
+      { debug, inlineCreativeUsed: false },
     );
   } catch (error) {
     const metaError = metaErrorFromCaught(error);
-    const failed = nextFailedStep(completed);
-    const message = error instanceof Error ? error.message : "Bilinmeyen hata";
+    const detail = error instanceof Error ? error.message : "Bilinmeyen hata";
 
-    const failedDebugStep: WizardDebugStep["step"] =
-      failed === "create_campaign"
-        ? "campaign"
-        : failed === "create_adset"
-          ? "adset"
-          : failed === "create_creative"
-            ? "creative"
-            : failed === "create_ad"
-              ? "ad"
-              : "media_upload";
+    const failedStep: CampaignCreationStep =
+      completedStep === "none"
+        ? "media"
+        : completedStep === "media"
+          ? "campaign"
+          : completedStep === "campaign"
+            ? "adset"
+            : completedStep === "adset"
+              ? "creative"
+              : "ad";
 
-    pushDebugStep(debug, {
-      step: failedDebugStep,
-      status: "failed",
-      recipeId: effectiveRecipeId,
+    const failedDebugStep: WizardDebugStepInfo["step"] =
+      failedStep === "media"
+        ? "media_upload"
+        : failedStep === "campaign"
+          ? "campaign"
+          : failedStep === "adset"
+            ? "adset"
+            : failedStep === "creative"
+              ? "creative"
+              : "ad";
+
+    return fail(
+      failedStep,
+      partialFailureMessage(failedStep, partial, detail),
       metaError,
-      sanitizedPayload:
-        failedDebugStep === "adset"
-          ? (debug.steps.find((s) => s.step === "adset")?.sanitizedPayload ?? undefined)
-          : undefined,
-    });
-
-    if (failed === "create_creative" || failed === "create_ad") {
-      pushDebugStep(debug, { step: "creative", status: "not_started" });
-      pushDebugStep(debug, { step: "ad", status: "not_started" });
-    }
-
-    return stepResult(
-      partial,
-      completed,
-      failed,
-      `Oluşturma ${failedStepLabel(failed)} adımında başarısız oldu. Oluşturulan varlıklar PAUSED durumda kalır. Hata: ${message}`,
-      false,
-      {
-        metaError: metaError ? { ...metaError, step: failedDebugStep } : undefined,
-        debug,
-        effectiveRecipeId,
-      },
+      failedDebugStep,
     );
   }
 }
 
-/** @deprecated Use runRecipeWizard */
-export async function runWebsiteSalesWizard(draft: CampaignSubmit): Promise<WizardCreateResult> {
-  return runRecipeWizard({
+/** @deprecated Use createFullAdCampaignPlan */
+export async function runRecipeWizard(draft: CampaignSubmit): Promise<CampaignCreationResult> {
+  return createFullAdCampaignPlan(draft);
+}
+
+/** @deprecated Use createFullAdCampaignPlan */
+export async function runWebsiteSalesWizard(draft: CampaignSubmit): Promise<CampaignCreationResult> {
+  return createFullAdCampaignPlan({
     ...draft,
     recipeId: (draft.recipeId ?? "SALES_WEBSITE") as CampaignRecipeId,
+    effectiveRecipeId: draft.effectiveRecipeId ?? (draft.recipeId ?? "SALES_WEBSITE"),
   });
 }
 
 export function usesInlineCreative(): boolean {
-  return USE_INLINE_CREATIVE;
+  return false;
 }

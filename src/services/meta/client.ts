@@ -21,6 +21,7 @@ import type {
   ResolvedMetaAssets,
 } from "@/types/meta-assets";
 import type {
+  CampaignCreationResult,
   MetaPixel,
   MetaTargetingLocation,
   GoogleLocationSelection,
@@ -557,13 +558,20 @@ export async function saveManualAdAccountProfile(params: {
   return data;
 }
 
-export async function runRecipeWizard(payload: WebsiteSalesSubmit): Promise<WizardCreateResult> {
-  const data = await apiFetch<{ result: WizardCreateResult }>("/api/meta/wizard/create", {
+export async function createFullAdCampaignPlan(
+  payload: WebsiteSalesSubmit,
+): Promise<CampaignCreationResult> {
+  const data = await apiFetch<{ result: CampaignCreationResult }>("/api/meta/wizard/create", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   return data.result;
+}
+
+/** @deprecated Use createFullAdCampaignPlan */
+export async function runRecipeWizard(payload: WebsiteSalesSubmit): Promise<WizardCreateResult> {
+  return createFullAdCampaignPlan(payload);
 }
 
 export async function runWebsiteSalesWizard(

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest, unauthorizedResponse } from "@/lib/auth";
 import { handleApiError } from "@/lib/api-utils";
-import { runRecipeWizard } from "@/services/meta/meta-creation-orchestrator";
+import { createFullAdCampaignPlan } from "@/services/meta/meta-creation-orchestrator";
 import { validateCampaignSubmit } from "@/utils/campaign-wizard-validation";
 import type { CampaignSubmit } from "@/types/campaign-wizard";
 
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: first ?? "Geçersiz istek" }, { status: 400 });
     }
 
-    const result = await runRecipeWizard(body);
+    const result = await createFullAdCampaignPlan(body);
 
     if (process.env.NODE_ENV !== "production" && result.debug) {
       console.info("[wizard/create] debug", JSON.stringify(result.debug, null, 2));

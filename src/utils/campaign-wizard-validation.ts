@@ -1,7 +1,8 @@
 import { getCampaignRecipe } from "@/config/campaign-recipes";
 import type { CampaignDraft, CampaignSubmit } from "@/types/campaign-wizard";
-import { recipeRequiresWebsiteUrl } from "@/utils/recipe-pixel";
+import { recipeRequiresPixel, recipeRequiresWebsiteUrl } from "@/utils/recipe-pixel";
 import { isAllowedWebsiteUrl } from "@/utils/url-normalize";
+import { validateDailyBudget } from "@/utils/meta-budget";
 
 export type WizardValidationErrors = Partial<Record<keyof CampaignDraft, string>> & {
   form?: string;
@@ -107,6 +108,55 @@ export function validateCampaignDraft(draft: CampaignDraft): WizardValidationErr
 
 /** @deprecated Use validateCampaignDraft */
 export const validateWebsiteSalesDraft = validateCampaignDraft;
+
+/** Meta POST öncesi server-side tam plan doğrulaması */
+export function validateCampaignSubmitForCreation(
+  input: CampaignSubmit,
+  adAccountId?: string | null,
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const recipeId = input.effectiveRecipeId ?? input.recipeId;
+  const recipe = recipeId ? getCampaignRecipe(recipeId) : null;
+
+  if (!adAccountId?.trim()) errors.push("Reklam hesabı seçilmedi");
+  if (!input.effectiveRecipeId) errors.push("effectiveRecipeId gerekli");
+  if (!recipeId || !recipe) errors.push("Geçersiz recipe");
+  if (!input.imageHash?.trim()) errors.push("Görsel yüklenmedi (image hash yok)");
+  if (!input.campaignName?.trim()) errors.push("Kampanya adı eksik");
+  if (!input.primaryText?.trim()) errors.push("Reklam metni eksik");
+  if (!input.headline?.trim()) errors.push("Başlık eksik");
+
+  const pageId = input.selectedAssets.page?.id ?? input.pageId;
+  if (!pageId?.trim()) errors.push("Facebook Page ID eksik");
+
+  const locationKey =
+    input.audienceLocations?.[0]?.key ?? input.selectedAssets.location?.key;
+  if (!locationKey?.trim()) errors.push("Hedef konum (Meta city key) eksik");
+
+  const budgetCheck = validateDailyBudget({ amount: input.dailyBudget, currency: "TRY" });
+  if (!budgetCheck.valid) errors.push(budgetCheck.message ?? "Bütçe geçersiz");
+
+  if (recipe) {
+    if (!recipe.objective) errors.push("Campaign objective eksik");
+    if (!recipe.optimizationGoal) errors.push("Optimization goal eksik");
+    if (!recipe.billingEvent) errors.push("Billing event eksik");
+  }
+
+  if (recipeRequiresWebsiteUrl(recipeId ?? "")) {
+    if (!input.websiteUrl?.trim()) {
+      errors.push("Website URL eksik");
+    } else if (!isAllowedWebsiteUrl(input.websiteUrl)) {
+      errors.push("Geçerli bir Website URL girin");
+    }
+  }
+
+  if (recipeRequiresPixel(recipeId ?? "")) {
+    const pixelId = input.selectedAssets.pixel?.id ?? input.pixelId;
+    if (!pixelId?.trim()) errors.push("Pixel ID eksik (Purchase event için gerekli)");
+  }
+
+  return { valid: errors.length === 0, errors };
+}
 
 export function validateCampaignSubmit(input: CampaignSubmit): Record<string, string> {
   const errors: Record<string, string> = {};
